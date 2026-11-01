@@ -25,7 +25,7 @@ export default function OwnerLoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: email.trim(),
-          password,
+          password: password.trim(),
         }),
       })
 
