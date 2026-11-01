@@ -20,7 +20,7 @@ interface AuthContextType {
   setIsLoginModalOpen: (open: boolean) => void
   isProfileModalOpen: boolean
   setIsProfileModalOpen: (open: boolean) => void
-  loginWithGoogle: () => Promise<UserProfile>
+  loginWithGoogle: () => Promise<UserProfile | null>
   logout: () => Promise<void>
   updateProfile: (data: Partial<UserProfile>) => Promise<UserProfile | null>
   addAddress: (address: Omit<Address, 'id'>) => Promise<Address | undefined>
@@ -51,7 +51,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
 
           if (!profile) {
-            // First time Google login: create devotional user profile
+            // First time Google login: create devotional user profile with REAL Google account data
             profile = {
               uid: firebaseUser.uid,
               name: firebaseUser.displayName || 'Devotee',
@@ -72,17 +72,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.setItem('vm_session_uid', profile.uid)
           setUser(profile)
         } catch (err) {
-          console.warn('Auth sync fallback:', err)
+          console.warn('Auth sync fallback notice:', err)
         }
       } else {
-        // Fallback: check localStorage mock session if any
-        const storedUid = localStorage.getItem('vm_session_uid')
+        // If an old development mock session exists, purge it from browser storage
+        const storedUid = typeof window !== 'undefined' ? localStorage.getItem('vm_session_uid') : null
         if (storedUid && storedUid.startsWith('user-google-dev-')) {
-          const mockUser = await UserRepository.getUserById(storedUid)
-          if (mockUser) setUser(mockUser)
-        } else {
-          setUser(null)
+          localStorage.removeItem('vm_session_uid')
         }
+        setUser(null)
       }
       setIsLoading(false)
     })
@@ -90,10 +88,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe()
   }, [])
 
-  const loginWithGoogle = async (): Promise<UserProfile> => {
+  const loginWithGoogle = async (): Promise<UserProfile | null> => {
     setIsLoading(true)
     try {
-      // 1. Real Firebase Google Sign-In Popup
+      // Real Firebase Google Sign-In
       const credential = await signInWithPopup(auth, googleProvider)
       const fbUser = credential.user
 
@@ -126,34 +124,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       return profile
     } catch (firebaseErr: any) {
-      console.warn('Firebase Google Sign-In popup notice:', firebaseErr?.message)
+      console.warn('Firebase Google Sign-In error:', firebaseErr?.code, firebaseErr?.message)
 
-      // Fallback for local testing if popup blocked or offline
-      const mockUid = 'user-google-dev-' + Date.now().toString().slice(-4)
-      const fallbackProfile: UserProfile = {
-        uid: mockUid,
-        name: 'Gaurav Singhal',
-        email: 'gaurav.singhal@gmail.com',
-        phone: '+91 98710 44221',
-        photoURL: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-        addresses: [],
-        profileComplete: false,
-        marketingConsent: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        lastActiveAt: new Date().toISOString(),
+      const code = firebaseErr?.code || ''
+
+      // User closed popup or cancelled: no error needed
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        return null
       }
 
-      await UserRepository.saveUser(fallbackProfile)
-      localStorage.setItem('vm_session_uid', fallbackProfile.uid)
-      setUser(fallbackProfile)
-      setIsLoginModalOpen(false)
-
-      if (!fallbackProfile.profileComplete) {
-        setIsProfileModalOpen(true)
+      if (code === 'auth/unauthorized-domain') {
+        throw new Error(
+          'This domain is not authorized in Firebase. Please add this domain under Firebase Console > Authentication > Settings > Authorized Domains.'
+        )
       }
 
-      return fallbackProfile
+      if (code === 'auth/popup-blocked') {
+        throw new Error(
+          'Google Sign-In popup was blocked by your browser. Please allow popups for this site and try again.'
+        )
+      }
+
+      throw new Error(firebaseErr?.message || 'Failed to authenticate with Google. Please try again.')
     } finally {
       setIsLoading(false)
     }
@@ -182,59 +174,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return updated
   }
 
-  const addAddress = async (newAddr: Omit<Address, 'id'>): Promise<Address | undefined> => {
-    if (!user) return undefined
-    const addressWithId: Address = {
-      ...newAddr,
-      id: `addr-${Date.now()}`,
+  const addAddress = async (addressData: Omit<Address, 'id'>) => {
+    if (!user) return
+    const newAddress: Address = {
+      ...addressData,
+      id: 'addr-' + Date.now().toString(),
     }
-    const updatedAddresses = [...user.addresses, addressWithId]
-    const updated: UserProfile = {
-      ...user,
+    let updatedAddresses = [...user.addresses]
+    if (newAddress.isDefault) {
+      updatedAddresses = updatedAddresses.map((a) => ({ ...a, isDefault: false }))
+    }
+    updatedAddresses.push(newAddress)
+    await updateProfile({
       addresses: updatedAddresses,
-      defaultAddressId: user.defaultAddressId || addressWithId.id,
-    }
-    await FirestoreUserService.save(updated)
-    await UserRepository.saveUser(updated)
-    setUser(updated)
-    return addressWithId
+      profileComplete: true,
+    })
+    return newAddress
   }
 
-  const updateAddress = async (updatedAddr: Address) => {
+  const updateAddress = async (updatedAddress: Address) => {
     if (!user) return
-    const updatedAddresses = user.addresses.map((a) => (a.id === updatedAddr.id ? updatedAddr : a))
-    const updated: UserProfile = {
-      ...user,
-      addresses: updatedAddresses,
+    let updatedAddresses = user.addresses.map((a) =>
+      a.id === updatedAddress.id ? updatedAddress : a
+    )
+    if (updatedAddress.isDefault) {
+      updatedAddresses = updatedAddresses.map((a) =>
+        a.id === updatedAddress.id ? a : { ...a, isDefault: false }
+      )
     }
-    await FirestoreUserService.save(updated)
-    await UserRepository.saveUser(updated)
-    setUser(updated)
+    await updateProfile({ addresses: updatedAddresses })
   }
 
   const deleteAddress = async (id: string) => {
     if (!user) return
     const updatedAddresses = user.addresses.filter((a) => a.id !== id)
-    const newDefaultId = user.defaultAddressId === id ? updatedAddresses[0]?.id : user.defaultAddressId
-    const updated: UserProfile = {
-      ...user,
-      addresses: updatedAddresses,
-      defaultAddressId: newDefaultId,
-    }
-    await FirestoreUserService.save(updated)
-    await UserRepository.saveUser(updated)
-    setUser(updated)
+    await updateProfile({ addresses: updatedAddresses })
   }
 
   const setDefaultAddress = async (id: string) => {
     if (!user) return
-    const updated: UserProfile = {
-      ...user,
-      defaultAddressId: id,
-    }
-    await FirestoreUserService.save(updated)
-    await UserRepository.saveUser(updated)
-    setUser(updated)
+    const updatedAddresses = user.addresses.map((a) => ({
+      ...a,
+      isDefault: a.id === id,
+    }))
+    await updateProfile({ addresses: updatedAddresses })
   }
 
   return (

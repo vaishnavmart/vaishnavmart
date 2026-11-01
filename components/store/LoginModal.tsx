@@ -2,22 +2,31 @@
 
 import React, { useState } from 'react'
 import Image from 'next/image'
-import { X, ShieldCheck } from 'lucide-react'
+import { X, ShieldCheck, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/lib/auth/AuthContext'
 
 export const LoginModal: React.FC = () => {
   const { isLoginModalOpen, setIsLoginModalOpen, loginWithGoogle } = useAuth()
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   if (!isLoginModalOpen) return null
 
   const handleGoogleSignIn = async () => {
     try {
+      setError(null)
       setLoading(true)
       await loginWithGoogle()
+    } catch (err: any) {
+      setError(err?.message || 'Google sign-in could not be completed. Please try again.')
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleClose = () => {
+    setError(null)
+    setIsLoginModalOpen(false)
   }
 
   return (
@@ -25,13 +34,13 @@ export const LoginModal: React.FC = () => {
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-cocoa/50 backdrop-blur-sm transition-opacity"
-        onClick={() => setIsLoginModalOpen(false)}
+        onClick={handleClose}
       />
 
-      {/* Modal Dialog (440px to 500px on desktop, full screen sheet on mobile) */}
+      {/* Modal Dialog */}
       <div className="relative z-10 w-full max-w-[480px] bg-porcelain border border-sand rounded-2xl shadow-2xl p-6 sm:p-8 flex flex-col items-center text-center">
         <button
-          onClick={() => setIsLoginModalOpen(false)}
+          onClick={handleClose}
           className="absolute top-4 right-4 p-2 text-taupe hover:text-burgundy rounded-full hover:bg-cream/40 transition-colors"
           aria-label="Close"
         >
@@ -54,12 +63,20 @@ export const LoginModal: React.FC = () => {
           Sign in to access your order history, saved addresses, and uncompromised Satvik culinary selections.
         </p>
 
+        {/* Error Alert */}
+        {error && (
+          <div className="w-full mt-4 p-3.5 bg-clay/10 border border-clay/30 rounded-xl flex items-start gap-2.5 text-left text-xs text-clay">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <p className="leading-relaxed">{error}</p>
+          </div>
+        )}
+
         {/* Google Continue CTA */}
-        <div className="w-full mt-8 space-y-4">
+        <div className="w-full mt-6 space-y-4">
           <button
             onClick={handleGoogleSignIn}
             disabled={loading}
-            className="w-full flex items-center justify-center gap-3 py-3.5 px-4 bg-white border border-sand hover:border-burgundy rounded-xl text-cocoa font-semibold text-sm shadow-sm hover:shadow transition-all"
+            className="w-full flex items-center justify-center gap-3 py-3.5 px-4 bg-white border border-sand hover:border-burgundy rounded-xl text-cocoa font-semibold text-sm shadow-sm hover:shadow transition-all disabled:opacity-60"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path

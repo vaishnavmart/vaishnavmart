@@ -129,7 +129,7 @@ export default function ContactPage() {
                     <input
                       type="text"
                       required
-                      placeholder="Gaurav Singhal"
+                      placeholder="e.g. Ramesh Sharma"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       className="w-full p-3 bg-ivory border border-sand rounded-xl text-xs text-cocoa focus:border-burgundy outline-none"
