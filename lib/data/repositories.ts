@@ -126,6 +126,16 @@ if (typeof window !== 'undefined') {
 export const ProductRepository = {
   async getAllProducts(options?: { status?: string; categoryId?: string; includeDemo?: boolean }): Promise<Product[]> {
     syncFromStorage()
+    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+      try {
+        const liveProducts = await FirestoreProductService.getAll()
+        if (liveProducts && liveProducts.length > 0) {
+          mockProductsStore = liveProducts
+        }
+      } catch (err) {
+        console.warn('Firestore getAllProducts notice:', err)
+      }
+    }
     let list = [...mockProductsStore]
     if (options?.status) {
       list = list.filter((p) => p.status === options.status)
@@ -143,13 +153,21 @@ export const ProductRepository = {
     syncFromStorage()
     if (id === 'rk-kha-08') return mockProductsStore.find((p) => p.id === 'rk-kha-06-50g' || p.id === 'rk-kha-08') || null
     if (id === 'rk-kha-09') return mockProductsStore.find((p) => p.id === 'rk-kha-07-50g' || p.id === 'rk-kha-09') || null
-    return mockProductsStore.find((p) => p.id === id) || null
+    let found = mockProductsStore.find((p) => p.id === id) || null
+    if (!found && process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+      try {
+        found = await FirestoreProductService.getById(id)
+      } catch {
+        // fallback
+      }
+    }
+    return found
   },
 
   async getProductBySlug(slug: string): Promise<Product | null> {
     syncFromStorage()
     const clean = slug.toLowerCase()
-    return (
+    let found = (
       mockProductsStore.find((p) => p.slug.toLowerCase() === clean) ||
       mockProductsStore.find(
         (p) =>
@@ -159,6 +177,14 @@ export const ProductRepository = {
       mockProductsStore.find((p) => p.id.toLowerCase() === clean) ||
       null
     )
+    if (!found && process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+      try {
+        found = await FirestoreProductService.getBySlug(slug)
+      } catch {
+        // fallback
+      }
+    }
+    return found
   },
 
   async saveProduct(product: Product): Promise<Product> {
@@ -316,6 +342,17 @@ export const CategoryRepository = {
 export const PageRepository = {
   async getPage(slug = 'home'): Promise<PageContent> {
     syncFromStorage()
+    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+      try {
+        const livePage = await FirestorePageService.getPage(slug)
+        if (livePage && ((livePage.publishedSections && livePage.publishedSections.length > 0) || (livePage.draftSections && livePage.draftSections.length > 0))) {
+          mockPagesStore[slug] = livePage
+          return livePage
+        }
+      } catch (err) {
+        console.warn(`Firestore page getPage(${slug}) notice:`, err)
+      }
+    }
     if (!mockPagesStore[slug]) {
       mockPagesStore[slug] = {
         id: `page-${slug}`,
