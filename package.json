@@ -1,12 +1,23 @@
 {
   "name": "vaishnavamart",
   "version": "1.0.0",
+  "description": "Enterprise Satvik, Jain & Vaishnav Food Commerce Platform by Ras Kan & Yashveer Labs",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vaishnavmart/vaishnavmart.git"
+  },
+  "homepage": "https://vaishnavamart.com",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   },
   "dependencies": {
     "@types/three": "^0.169.0",

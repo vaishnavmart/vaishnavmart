@@ -35,7 +35,7 @@ export default function ReturnPolicyPage() {
             In accordance with stringent devotional purity vows and food safety standards, <strong>Vaishnava Mart products are strictly not eligible for returns once dispatched or delivered</strong>.
           </p>
           <p className="text-xs sm:text-sm text-taupe">
-            Because our stone-ground spices, fasting flours, bilona ghee, and satvik premixes are prepared in dedicated allium-free cleanrooms, we do not accept items back into our facility. This policy guarantees that no item delivered to a devotee's kitchen has ever passed through another party's premises.
+            Because our stone-ground spices, fasting flours, bilona ghee, and satvik premixes are prepared in dedicated allium-free cleanrooms, we do not accept items back into our facility. This policy guarantees that no item delivered to a devotee&apos;s kitchen has ever passed through another party&apos;s premises.
           </p>
         </div>
 

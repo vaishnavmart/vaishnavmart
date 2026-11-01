@@ -82,7 +82,7 @@ export const HomeHero: React.FC<HomeHeroProps> = ({
 
             {/* Accompanying English Meaning & Gratitude Message */}
             <p className="mt-6 text-base sm:text-xl text-taupe leading-relaxed font-serif italic max-w-2xl">
-              "{body || displayEnglishMeaning}"
+              &ldquo;{body || displayEnglishMeaning}&rdquo;
             </p>
             <p className="text-xs sm:text-sm font-sans tracking-wide uppercase text-copper font-semibold">
               — Vaishnava Mart • Dedicated Satvik Kitchen

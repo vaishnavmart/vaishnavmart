@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useRef, useState, useEffect } from 'react'
+import React, { useRef, useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Category } from '@/types'
@@ -25,7 +25,7 @@ export const ShopByCategorySection: React.FC<ShopByCategorySectionProps> = ({
   // Visible categories
   const visibleCategories = categories.filter((c) => c.visible !== false)
 
-  const checkScroll = () => {
+  const checkScroll = useCallback(() => {
     if (!scrollContainerRef.current) return
     const { scrollLeft, scrollWidth, clientWidth } = scrollContainerRef.current
     setCanScrollLeft(scrollLeft > 10)
@@ -36,7 +36,7 @@ export const ShopByCategorySection: React.FC<ShopByCategorySectionProps> = ({
       const page = Math.round(scrollLeft / (clientWidth * 0.75))
       setActiveIndex(Math.min(page, Math.max(0, visibleCategories.length - 1)))
     }
-  }
+  }, [visibleCategories.length])
 
   useEffect(() => {
     const el = scrollContainerRef.current
@@ -48,7 +48,7 @@ export const ShopByCategorySection: React.FC<ShopByCategorySectionProps> = ({
       el.removeEventListener('scroll', checkScroll)
       window.removeEventListener('resize', checkScroll)
     }
-  }, [visibleCategories])
+  }, [checkScroll])
 
   const scroll = (direction: 'left' | 'right') => {
     if (!scrollContainerRef.current) return

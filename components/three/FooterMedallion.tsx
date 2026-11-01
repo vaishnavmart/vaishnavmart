@@ -39,7 +39,10 @@ export const FooterMedallion: React.FC = () => {
     pointLight.position.set(2, 2, 3)
     scene.add(pointLight)
 
-    mountRef.current.appendChild(renderer.domElement)
+    const container = mountRef.current
+    if (container) {
+      container.appendChild(renderer.domElement)
+    }
 
     let animationFrameId: number
     const animate = () => {
@@ -52,8 +55,8 @@ export const FooterMedallion: React.FC = () => {
     return () => {
       cancelAnimationFrame(animationFrameId)
       renderer.dispose()
-      if (mountRef.current && renderer.domElement) {
-        mountRef.current.removeChild(renderer.domElement)
+      if (container && renderer.domElement && container.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement)
       }
     }
   }, [])

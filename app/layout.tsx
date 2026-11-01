@@ -28,11 +28,41 @@ const rozhaOne = Rozha_One({
   display: 'swap',
 })
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://vaishnavamart.com'
+
 export const metadata: Metadata = {
-  title: 'Vaishnava Mart | Pure Satvik, Jain & Vaishnav Food Products',
+  title: {
+    default: 'Vaishnava Mart | Pure Satvik, Jain & Vaishnav Food Products',
+    template: '%s | Vaishnava Mart',
+  },
   description:
-    'Dedicated culinary purity for Jain, Vaishnav, and devout Satvik homes. 100% free from onion, garlic, and contamination. Cold-ground whole spices, fasting staples, and royal dry fruits.',
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://vaishnavamart.com'),
+    'Dedicated culinary purity for Jain, Vaishnav, and devout Satvik homes. 100% free from onion and garlic. Stone-ground whole spices, hand-roasted khakhras, fasting flours, and royal dry fruits.',
+  metadataBase: new URL(siteUrl),
+  alternates: {
+    canonical: '/',
+  },
+  keywords: [
+    'Vaishnava Mart',
+    'Ras Kan',
+    'Satvik Food',
+    'No Onion No Garlic',
+    'Jain Food Online',
+    'Pure Vaishnav Grocery',
+    'Bhog Ke Liye Masale',
+    'Khakhra Online',
+    'Fasting Food',
+    'Ekadashi Staples',
+    'Stone Ground Spices',
+    'Ayurvedic Spices',
+  ],
+  authors: [{ name: 'Yashveer Singh Rajpoot', url: 'https://vaishnavamart.com/yashveer-singh-rajpoot' }],
+  creator: 'Yashveer Labs',
+  publisher: 'Vaishnava Mart',
+  formatDetection: {
+    email: false,
+    address: false,
+    telephone: false,
+  },
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: 'any' },
@@ -44,10 +74,38 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: 'Vaishnava Mart | Divine Satvik Purity',
-    description: 'Devotional Satvik and Jain food essentials prepared under dedicated zero-contamination standards.',
-    images: ['/images/logo/logo.png'],
+    description:
+      'Devotional Satvik and Jain food essentials prepared under dedicated zero-contamination standards. 100% allium-free.',
+    url: siteUrl,
+    siteName: 'Vaishnava Mart',
+    images: [
+      {
+        url: '/images/logo/logo.png',
+        width: 1200,
+        height: 630,
+        alt: 'Ras Kan - Vaishnava Mart Divine Purity',
+      },
+    ],
     locale: 'en_IN',
     type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Vaishnava Mart | Divine Satvik Purity',
+    description:
+      'Pure Satvik and Jain food essentials prepared under dedicated zero-contamination standards. No onion, no garlic.',
+    images: ['/images/logo/logo.png'],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
   },
 }
 
@@ -56,8 +114,65 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
+  const orgSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: 'Vaishnava Mart',
+    alternateName: ['Ras Kan', 'VaishnavaMart'],
+    url: siteUrl,
+    logo: `${siteUrl}/images/logo/logo.png`,
+    description:
+      'Dedicated culinary purity for Jain, Vaishnav, and devout Satvik homes. 100% free from onion, garlic, and cross-contamination.',
+    founder: {
+      '@type': 'Person',
+      name: 'Yashveer Singh Rajpoot',
+      url: `${siteUrl}/yashveer-singh-rajpoot`,
+    },
+    parentOrganization: {
+      '@type': 'Organization',
+      name: 'Rajpoot Industries',
+      url: `${siteUrl}/rajpoot-industries`,
+    },
+    contactPoint: {
+      '@type': 'ContactPoint',
+      telephone: '+918595268400',
+      contactType: 'customer support',
+      areaServed: 'IN',
+      availableLanguage: ['en', 'hi'],
+    },
+    sameAs: [
+      'https://instagram.com/vaishnavamart',
+      'https://facebook.com/vaishnavamart',
+    ],
+  }
+
+  const websiteSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: 'Vaishnava Mart',
+    url: siteUrl,
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: {
+        '@type': 'EntryPoint',
+        urlTemplate: `${siteUrl}/shop?q={search_term_string}`,
+      },
+      'query-input': 'required name=search_term_string',
+    },
+  }
+
   return (
     <html lang="en" className={`${cormorant.variable} ${manrope.variable} ${rozhaOne.variable}`}>
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(orgSchema) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema) }}
+        />
+      </head>
       <body className="bg-ivory text-cocoa antialiased selection:bg-gold/20 selection:text-burgundy">
         <AuthProvider>
           <CartProvider>
