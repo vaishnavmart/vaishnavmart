@@ -581,17 +581,63 @@ export const OrderRepository = {
 export const UserRepository = {
   async getAllUsers(filter?: { search?: string }): Promise<UserProfile[]> {
     syncFromStorage()
+
+    // Fetch and merge real live customer profiles from Firestore
+    try {
+      const liveUsers = await FirestoreUserService.getAll()
+      if (liveUsers && liveUsers.length > 0) {
+        liveUsers.forEach((lu) => {
+          const idx = mockUsersStore.findIndex(
+            (u) => u.uid === lu.uid || (u.email && lu.email && u.email.toLowerCase() === lu.email.toLowerCase())
+          )
+          if (idx >= 0) {
+            mockUsersStore[idx] = { ...mockUsersStore[idx], ...lu }
+          } else {
+            mockUsersStore.unshift(lu)
+          }
+        })
+        syncToStorage()
+      }
+    } catch (err) {
+      console.warn('Firestore users fetch notice:', err)
+    }
+
     let list = [...mockUsersStore]
     if (filter?.search) {
       const q = filter.search.toLowerCase()
-      list = list.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.phone.includes(q))
+      list = list.filter(
+        (u) =>
+          u.name.toLowerCase().includes(q) ||
+          u.email.toLowerCase().includes(q) ||
+          (u.phone && u.phone.includes(q))
+      )
     }
-    return list
+    return list.sort(
+      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    )
   },
 
   async getUserById(uid: string): Promise<UserProfile | null> {
+    if (!uid) return null
     syncFromStorage()
-    return mockUsersStore.find((u) => u.uid === uid) || null
+    const local = mockUsersStore.find((u) => u.uid === uid)
+    if (local) return local
+
+    // Query Firestore if not present in local store
+    try {
+      const firestoreUser = await FirestoreUserService.getById(uid)
+      if (firestoreUser) {
+        if (!mockUsersStore.some((u) => u.uid === firestoreUser.uid)) {
+          mockUsersStore.push(firestoreUser)
+          syncToStorage()
+        }
+        return firestoreUser
+      }
+    } catch (err) {
+      console.warn('Firestore getUserById notice:', err)
+    }
+
+    return null
   },
 
   async saveUser(user: UserProfile): Promise<UserProfile> {
@@ -600,9 +646,17 @@ export const UserRepository = {
     if (idx >= 0) {
       mockUsersStore[idx] = { ...user, updatedAt: new Date().toISOString() }
     } else {
-      mockUsersStore.push(user)
+      mockUsersStore.unshift(user)
     }
     syncToStorage()
+
+    // Sync to Firestore
+    try {
+      await FirestoreUserService.save(user)
+    } catch (err) {
+      console.warn('Firebase user save notice:', err)
+    }
+
     return user
   },
 }

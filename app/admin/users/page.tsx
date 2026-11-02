@@ -16,17 +16,48 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     async function load() {
-      const [allUsers, allOrders] = await Promise.all([
-        UserRepository.getAllUsers({ search: searchTerm || undefined }),
-        OrderRepository.getOrders(),
-      ])
+      let allUsers: UserProfile[] = []
+      let allOrders: any[] = []
+
+      try {
+        const queryParams = new URLSearchParams()
+        if (searchTerm) queryParams.set('search', searchTerm)
+
+        const [usersRes, ordersRes] = await Promise.all([
+          fetch(`/api/admin/users?${queryParams.toString()}`),
+          fetch(`/api/admin/orders`),
+        ])
+
+        if (usersRes.ok) {
+          const usersJson = await usersRes.json()
+          if (usersJson.success && Array.isArray(usersJson.users)) {
+            allUsers = usersJson.users
+          }
+        }
+
+        if (ordersRes.ok) {
+          const ordersJson = await ordersRes.json()
+          if (ordersJson.success && Array.isArray(ordersJson.orders)) {
+            allOrders = ordersJson.orders
+          }
+        }
+      } catch {
+        // Fallback to local repository
+      }
+
+      if (allUsers.length === 0) {
+        allUsers = await UserRepository.getAllUsers({ search: searchTerm || undefined })
+      }
+      if (allOrders.length === 0) {
+        allOrders = await OrderRepository.getOrders()
+      }
 
       const counts: Record<string, number> = {}
       const spend: Record<string, number> = {}
 
       allOrders.forEach((o) => {
         counts[o.userId] = (counts[o.userId] || 0) + 1
-        spend[o.userId] = (spend[o.userId] || 0) + o.finalTotal
+        spend[o.userId] = (spend[o.userId] || 0) + (o.finalTotal || 0)
       })
 
       setUsers(allUsers)
@@ -89,6 +120,15 @@ export default function AdminUsersPage() {
                     <p className="font-bold text-sm text-cocoa group-hover:text-burgundy transition-colors truncate">
                       {u.name}
                     </p>
+                    {u.uid.startsWith('user-mock-') ? (
+                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-sand/60 text-taupe">
+                        Demo
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-botanical/15 text-botanical font-mono">
+                        Live Patron
+                      </span>
+                    )}
                     {u.profileComplete && (
                       <span className="text-[10px] text-botanical font-semibold flex items-center gap-0.5">
                         <ShieldCheck className="w-3 h-3" /> Complete

@@ -15,6 +15,24 @@ export default function AdminOrdersPage() {
 
   useEffect(() => {
     async function load() {
+      try {
+        const queryParams = new URLSearchParams()
+        if (filterStatus && filterStatus !== 'all') queryParams.set('status', filterStatus)
+        if (searchTerm) queryParams.set('search', searchTerm)
+
+        const res = await fetch(`/api/admin/orders?${queryParams.toString()}`)
+        if (res.ok) {
+          const json = await res.json()
+          if (json.success && Array.isArray(json.orders)) {
+            setOrders(json.orders)
+            setLoading(false)
+            return
+          }
+        }
+      } catch {
+        // Fallback to client repository
+      }
+
       const data = await OrderRepository.getOrders({
         status: filterStatus === 'all' ? undefined : filterStatus,
         search: searchTerm || undefined,
@@ -116,6 +134,15 @@ export default function AdminOrdersPage() {
                     <span className="font-mono font-bold text-sm text-burgundy">
                       #{order.orderNumber}
                     </span>
+                    {order.id.startsWith('ord-100') ? (
+                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-sand/60 text-taupe">
+                        Demo
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-botanical/15 text-botanical">
+                        Live Order
+                      </span>
+                    )}
                     <span className="text-xs text-taupe">
                       • {new Date(order.createdAt).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}
                     </span>

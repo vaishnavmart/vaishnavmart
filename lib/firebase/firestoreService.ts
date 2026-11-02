@@ -230,6 +230,19 @@ export const FirestoreOrderService = {
    USERS / CUSTOMER PROFILES
 ===================================================================== */
 export const FirestoreUserService = {
+  async getAll(): Promise<UserProfile[]> {
+    try {
+      const snap = await getDocs(collection(db, 'users'))
+      const users = snap.docs.map((d) => d.data() as UserProfile)
+      return users.sort(
+        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      )
+    } catch (err) {
+      console.warn('Firestore users fetch fallback:', err)
+      return []
+    }
+  },
+
   async getById(uid: string): Promise<UserProfile | null> {
     try {
       const ref = doc(db, 'users', uid)

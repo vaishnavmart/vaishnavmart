@@ -31,21 +31,37 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     async function loadStats() {
-      const [orders, cartUsers, products] = await Promise.all([
-        OrderRepository.getOrders(),
+      let orders: any[] = []
+      try {
+        const res = await fetch('/api/admin/orders')
+        if (res.ok) {
+          const json = await res.json()
+          if (json.success && Array.isArray(json.orders)) {
+            orders = json.orders
+          }
+        }
+      } catch {
+        // Fallback
+      }
+
+      if (orders.length === 0) {
+        orders = await OrderRepository.getOrders()
+      }
+
+      const [cartUsers, products] = await Promise.all([
         CartRepository.getCartUsers(),
         ProductRepository.getAllProducts(),
       ])
 
       const todayStr = new Date().toISOString().slice(0, 10)
-      const ordersToday = orders.filter((o) => o.createdAt.startsWith(todayStr))
-      const revenueToday = ordersToday.reduce((sum, o) => sum + o.finalTotal, 0)
+      const ordersToday = orders.filter((o) => (o.createdAt || '').startsWith(todayStr))
+      const revenueToday = ordersToday.reduce((sum, o) => sum + (o.finalTotal || 0), 0)
       const newOrders = orders.filter((o) => o.orderStatus === 'new' || o.orderStatus === 'confirmed')
       const lowStock = products.filter((p) => p.stock <= p.lowStockThreshold)
 
       setStats({
-        ordersToday: ordersToday.length || orders.length, // in mock mode show all if none today
-        revenueToday: revenueToday || orders.reduce((sum, o) => sum + o.finalTotal, 0),
+        ordersToday: ordersToday.length || orders.length,
+        revenueToday: revenueToday || orders.reduce((sum, o) => sum + (o.finalTotal || 0), 0),
         newOrders: newOrders.length,
         unfinishedCarts: cartUsers.length,
         lowStock: lowStock.length,

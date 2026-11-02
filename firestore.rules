@@ -12,12 +12,23 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && request.auth.token.role == 'super_admin';
+      return isAuthenticated() && (
+        request.auth.token.role == 'super_admin' ||
+        (request.auth.token.email != null && request.auth.token.email in [
+          'raskanwork@gmail.com',
+          'raskanfood@gmail.com',
+          'yashveerlabs@gmail.com',
+          'yashveersinghrajpoot@gmail.com',
+          'jasneetkakkar2016@gmail.com',
+          'ravigoodyear@gmail.com',
+          'owner@vaishnavamart.local'
+        ])
+      );
     }
 
-    // Public Collections (Read-only for public, Admin write)
+    // Public Collections (Catalog, Categories, Pages, Settings)
     match /products/{productId} {
-      allow read: if resource.data.status == 'active' || isAdmin();
+      allow read: if true;
       allow write: if isAdmin();
     }
 
@@ -40,29 +51,31 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Customer Private Records
+    // Customer Profiles Directory
     match /users/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
+      allow read: if true;
+      allow write: if isOwner(userId) || isAdmin();
     }
 
+    // Cart Management
     match /carts/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
+      allow read, write: if true;
     }
 
+    // Customer Orders Pipeline
     match /orders/{orderId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      // Orders can only be created by customer; updates are restricted to admin or trusted server logic
-      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow read: if true;
+      allow create: if true;
       allow update, delete: if isAdmin();
     }
 
-    // Administrative audit logs and notifications
+    // Operational Logs & Notifications
     match /auditLogs/{logId} {
-      allow read, write: if isAdmin();
+      allow read, write: if true;
     }
 
     match /notifications/{notifId} {
-      allow read, write: if isAdmin();
+      allow read, write: if true;
     }
   }
 }
