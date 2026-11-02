@@ -436,6 +436,25 @@ export const OrderRepository = {
   async getOrders(filter?: { status?: string; userId?: string; search?: string }): Promise<Order[]> {
     syncFromStorage()
 
+    // In browser: automatically sync any recent client orders stored in localStorage to server & Firestore
+    if (typeof window !== 'undefined') {
+      try {
+        const lastOrderStr = localStorage.getItem('vm_last_order')
+        if (lastOrderStr) {
+          const lastOrder = JSON.parse(lastOrderStr) as Order
+          if (lastOrder && lastOrder.id && !lastOrder.id.startsWith('ord-100')) {
+            fetch('/api/orders', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(lastOrder),
+            }).catch(() => {})
+          }
+        }
+      } catch {
+        // Safe catch
+      }
+    }
+
     // Fetch and merge any orders directly from Firestore
     try {
       const liveOrders = await FirestoreOrderService.getAll()
@@ -443,9 +462,9 @@ export const OrderRepository = {
         liveOrders.forEach((lo) => {
           const idx = mockOrdersStore.findIndex((o) => o.id === lo.id || o.orderNumber === lo.orderNumber)
           if (idx >= 0) {
-            mockOrdersStore[idx] = lo
+            mockOrdersStore[idx] = { ...mockOrdersStore[idx], ...lo }
           } else {
-            mockOrdersStore.push(lo)
+            mockOrdersStore.unshift(lo)
           }
         })
         syncToStorage()
@@ -557,7 +576,18 @@ export const OrderRepository = {
 
   async updateOrderStatus(id: string, status: OrderStatus, paymentState?: PaymentState): Promise<Order | null> {
     syncFromStorage()
-    const order = mockOrdersStore.find((o) => o.id === id)
+    let order = mockOrdersStore.find((o) => o.id === id)
+    if (!order) {
+      try {
+        const firestoreOrder = await FirestoreOrderService.getById(id)
+        if (firestoreOrder) {
+          order = firestoreOrder
+          mockOrdersStore.unshift(order)
+        }
+      } catch (e) {
+        // Safe catch
+      }
+    }
     if (order) {
       order.orderStatus = status
       if (paymentState) order.paymentState = paymentState

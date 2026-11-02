@@ -216,12 +216,13 @@ export const FirestoreOrderService = {
 
   async save(order: Order): Promise<Order> {
     try {
-      const ref = doc(db, 'orders', order.id)
-      await setDoc(ref, order, { merge: true })
-      return order
+      const cleanOrder = JSON.parse(JSON.stringify(order))
+      const ref = doc(db, 'orders', cleanOrder.id)
+      await setDoc(ref, cleanOrder, { merge: true })
+      return cleanOrder
     } catch (err) {
-      console.warn('Firestore order save fallback:', err)
-      return order
+      console.error('Firestore order save error:', err)
+      throw err
     }
   },
 }
@@ -256,9 +257,10 @@ export const FirestoreUserService = {
 
   async save(user: UserProfile): Promise<UserProfile> {
     try {
-      const ref = doc(db, 'users', user.uid)
-      await setDoc(ref, user, { merge: true })
-      return user
+      const cleanUser = JSON.parse(JSON.stringify(user))
+      const ref = doc(db, 'users', cleanUser.uid)
+      await setDoc(ref, cleanUser, { merge: true })
+      return cleanUser
     } catch (err) {
       console.warn('Firestore user save fallback:', err)
       return user

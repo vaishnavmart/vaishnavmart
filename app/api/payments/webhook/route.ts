@@ -52,7 +52,8 @@ export async function POST(request: Request) {
 
     switch (event) {
       case 'order.paid':
-      case 'payment.captured': {
+      case 'payment.captured':
+      case 'payment.authorized': {
         if (orderId) {
           const orders = await OrderRepository.getOrders()
           const matched = orders.find(

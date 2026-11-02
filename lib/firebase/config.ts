@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app'
 import { getAuth, GoogleAuthProvider } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import { initializeFirestore, getFirestore } from 'firebase/firestore'
 
 export const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyDOqxP5wjw5YcEEyyuW-wKW7xiIDubFe-8',
@@ -20,5 +20,14 @@ export const auth = getAuth(app)
 export const googleProvider = new GoogleAuthProvider()
 googleProvider.setCustomParameters({ prompt: 'select_account' })
 
-// Cloud Firestore Database instance
-export const db = getFirestore(app)
+// Cloud Firestore Database instance with ignoreUndefinedProperties enabled
+let firestoreDb
+try {
+  firestoreDb = initializeFirestore(app, {
+    ignoreUndefinedProperties: true,
+  })
+} catch {
+  firestoreDb = getFirestore(app)
+}
+
+export const db = firestoreDb

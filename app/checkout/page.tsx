@@ -107,11 +107,11 @@ export default function CheckoutPage() {
           orderNumber,
           userId: user.uid,
           customerSnapshot: {
-            name: user.name,
-            email: user.email,
-            phone: user.phone,
-            secondaryPhone: user.secondaryPhone,
-            photoURL: user.photoURL,
+            name: user.name || 'Devotee',
+            email: user.email || '',
+            phone: user.phone || selectedAddress.phone || '',
+            secondaryPhone: user.secondaryPhone || undefined,
+            photoURL: user.photoURL || undefined,
           },
           deliveryAddressSnapshot: selectedAddress,
           items: itemSnapshots,
@@ -123,26 +123,40 @@ export default function CheckoutPage() {
           paymentMethod: method,
           paymentId: payId,
           orderStatus: 'confirmed',
-          notes: deliveryNotes || undefined,
+          notes: deliveryNotes?.trim() || undefined,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }
 
-        // Store immediately in localStorage for instant hydration on success page
+        // Deep sanitize to guarantee no undefined fields cause Firestore rejection
+        const sanitizedOrder: Order = JSON.parse(JSON.stringify(newOrder))
+
+        // 1. Store immediately in localStorage for instant hydration on success page
         if (typeof window !== 'undefined') {
           try {
-            localStorage.setItem('vm_last_order', JSON.stringify(newOrder))
+            localStorage.setItem('vm_last_order', JSON.stringify(sanitizedOrder))
           } catch {
             // Storage quota catch
           }
         }
 
-        // Persist order in repository and Firestore
-        await OrderRepository.createOrder(newOrder)
+        // 2. Persist to server API endpoint (ensures server and Firestore persistence)
+        try {
+          await fetch('/api/orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sanitizedOrder),
+          })
+        } catch (apiErr) {
+          console.warn('API order post notice:', apiErr)
+        }
+
+        // 3. Persist order in client repository & direct Firestore
+        await OrderRepository.createOrder(sanitizedOrder)
         await clearCart()
 
-        // Use router.push or window.location for robust navigation
-        router.push(`/order-success/${newOrder.id}`)
+        // 4. Navigate directly to success page
+        router.push(`/order-success/${sanitizedOrder.id}`)
       } catch (orderErr: any) {
         console.error('Order creation error:', orderErr)
         setErrorMessage(orderErr?.message || 'Could not save order. Please check connection.')
