@@ -6,7 +6,7 @@ export async function POST(request: Request) {
   try {
     const rawBody = await request.text()
     const signature = request.headers.get('x-razorpay-signature')
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET
 
     if (!webhookSecret) {
       console.warn('RAZORPAY_WEBHOOK_SECRET is not configured on the server.')
