@@ -91,45 +91,63 @@ export default function CheckoutPage() {
     setErrorMessage('')
 
     const createAndSaveOrder = async (payId: string, method: 'razorpay' | 'cod') => {
-      const itemSnapshots: OrderItemSnapshot[] = items.map((i) => ({
-        productId: i.productId,
-        productNameSnapshot: i.product.name,
-        imageSnapshot: i.product.mainImage,
-        priceSnapshot: i.product.price,
-        mrpSnapshot: i.product.mrp,
-        quantity: i.quantity,
-      }))
+      try {
+        const itemSnapshots: OrderItemSnapshot[] = items.map((i) => ({
+          productId: i.productId,
+          productNameSnapshot: i.product.name,
+          imageSnapshot: i.product.mainImage,
+          priceSnapshot: i.product.price,
+          mrpSnapshot: i.product.mrp,
+          quantity: i.quantity,
+        }))
 
-      const orderNumber = `VM-${Date.now().toString().slice(-6)}`
-      const newOrder: Order = {
-        id: `ord-${Date.now()}`,
-        orderNumber,
-        userId: user.uid,
-        customerSnapshot: {
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          secondaryPhone: user.secondaryPhone,
-          photoURL: user.photoURL,
-        },
-        deliveryAddressSnapshot: selectedAddress,
-        items: itemSnapshots,
-        subtotal,
-        discount: 0,
-        shipping: shippingCost,
-        finalTotal: total,
-        paymentState: method === 'cod' ? 'pending' : 'paid',
-        paymentMethod: method,
-        paymentId: payId,
-        orderStatus: 'confirmed',
-        notes: deliveryNotes || undefined,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        const orderNumber = `VM-${Date.now().toString().slice(-6)}`
+        const newOrder: Order = {
+          id: `ord-${Date.now()}`,
+          orderNumber,
+          userId: user.uid,
+          customerSnapshot: {
+            name: user.name,
+            email: user.email,
+            phone: user.phone,
+            secondaryPhone: user.secondaryPhone,
+            photoURL: user.photoURL,
+          },
+          deliveryAddressSnapshot: selectedAddress,
+          items: itemSnapshots,
+          subtotal,
+          discount: 0,
+          shipping: shippingCost,
+          finalTotal: total,
+          paymentState: method === 'cod' ? 'pending' : 'paid',
+          paymentMethod: method,
+          paymentId: payId,
+          orderStatus: 'confirmed',
+          notes: deliveryNotes || undefined,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+
+        // Store immediately in localStorage for instant hydration on success page
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('vm_last_order', JSON.stringify(newOrder))
+          } catch {
+            // Storage quota catch
+          }
+        }
+
+        // Persist order in repository and Firestore
+        await OrderRepository.createOrder(newOrder)
+        await clearCart()
+
+        // Use router.push or window.location for robust navigation
+        router.push(`/order-success/${newOrder.id}`)
+      } catch (orderErr: any) {
+        console.error('Order creation error:', orderErr)
+        setErrorMessage(orderErr?.message || 'Could not save order. Please check connection.')
+        setIsProcessing(false)
       }
-
-      await OrderRepository.createOrder(newOrder)
-      await clearCart()
-      router.push(`/order-success/${newOrder.id}`)
     }
 
     try {

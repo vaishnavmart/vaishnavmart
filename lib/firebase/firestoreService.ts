@@ -176,19 +176,38 @@ export const FirestorePageService = {
 export const FirestoreOrderService = {
   async getAll(): Promise<Order[]> {
     try {
-      const snap = await getDocs(collection(db, 'orders'))
+      const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'))
+      const snap = await getDocs(q)
       return snap.docs.map((d) => d.data() as Order)
     } catch (err) {
-      console.warn('Firestore orders fetch fallback:', err)
-      return []
+      try {
+        const snap = await getDocs(collection(db, 'orders'))
+        return snap.docs.map((d) => d.data() as Order)
+      } catch (innerErr) {
+        console.warn('Firestore orders fetch fallback:', innerErr)
+        return []
+      }
     }
   },
 
   async getById(id: string): Promise<Order | null> {
+    if (!id) return null
     try {
+      // 1. Direct document ID lookup
       const ref = doc(db, 'orders', id)
       const snap = await getDoc(ref)
-      return snap.exists() ? (snap.data() as Order) : null
+      if (snap.exists()) {
+        return snap.data() as Order
+      }
+
+      // 2. Query by orderNumber field (e.g. VM-123456)
+      const q = query(collection(db, 'orders'), where('orderNumber', '==', id))
+      const querySnap = await getDocs(q)
+      if (!querySnap.empty) {
+        return querySnap.docs[0].data() as Order
+      }
+
+      return null
     } catch (err) {
       console.warn('Firestore order getById fallback:', err)
       return null

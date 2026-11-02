@@ -435,6 +435,25 @@ export const PageRepository = {
 export const OrderRepository = {
   async getOrders(filter?: { status?: string; userId?: string; search?: string }): Promise<Order[]> {
     syncFromStorage()
+
+    // Fetch and merge any orders directly from Firestore
+    try {
+      const liveOrders = await FirestoreOrderService.getAll()
+      if (liveOrders && liveOrders.length > 0) {
+        liveOrders.forEach((lo) => {
+          const idx = mockOrdersStore.findIndex((o) => o.id === lo.id || o.orderNumber === lo.orderNumber)
+          if (idx >= 0) {
+            mockOrdersStore[idx] = lo
+          } else {
+            mockOrdersStore.push(lo)
+          }
+        })
+        syncToStorage()
+      }
+    } catch {
+      // Non-blocking fallback to local storage
+    }
+
     let list = [...mockOrdersStore]
     if (filter?.status && filter.status !== 'all') {
       list = list.filter((o) => o.orderStatus === filter.status)
@@ -456,13 +475,58 @@ export const OrderRepository = {
   },
 
   async getOrderById(id: string): Promise<Order | null> {
+    if (!id) return null
     syncFromStorage()
-    return mockOrdersStore.find((o) => o.id === id || o.orderNumber === id) || null
+    // 1. Check local in-memory/localStorage store
+    const local = mockOrdersStore.find((o) => o.id === id || o.orderNumber === id)
+    if (local) return local
+
+    // 2. Check localStorage last order cache
+    if (typeof window !== 'undefined') {
+      try {
+        const lastOrderStr = localStorage.getItem('vm_last_order')
+        if (lastOrderStr) {
+          const lastOrder = JSON.parse(lastOrderStr) as Order
+          if (lastOrder.id === id || lastOrder.orderNumber === id) {
+            mockOrdersStore.unshift(lastOrder)
+            return lastOrder
+          }
+        }
+      } catch {
+        // Continue to Firestore
+      }
+    }
+
+    // 3. Check Firestore
+    try {
+      const firestoreOrder = await FirestoreOrderService.getById(id)
+      if (firestoreOrder) {
+        if (!mockOrdersStore.some((o) => o.id === firestoreOrder.id)) {
+          mockOrdersStore.unshift(firestoreOrder)
+          syncToStorage()
+        }
+        return firestoreOrder
+      }
+    } catch (err) {
+      console.warn('Firestore getOrderById notice:', err)
+    }
+
+    return null
   },
 
   async createOrder(order: Order): Promise<Order> {
     syncFromStorage()
     mockOrdersStore.unshift(order)
+
+    // Save immediate snapshot for zero-latency success page recovery
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('vm_last_order', JSON.stringify(order))
+      } catch {
+        // Safe quota catch
+      }
+    }
+
     // Reduce product inventory
     order.items.forEach((item) => {
       const prod = mockProductsStore.find((p) => p.id === item.productId)
@@ -470,6 +534,7 @@ export const OrderRepository = {
         prod.stock = Math.max(0, prod.stock - item.quantity)
       }
     })
+
     // Add notification
     await NotificationRepository.addNotification({
       type: 'order',
@@ -480,10 +545,12 @@ export const OrderRepository = {
     })
     syncToStorage()
 
-    // Sync order to Firestore
-    FirestoreOrderService.save(order).catch((err) => {
+    // Sync order to Firestore and await to ensure database consistency before redirect
+    try {
+      await FirestoreOrderService.save(order)
+    } catch (err) {
       console.warn('Firebase order save notice:', err)
-    })
+    }
 
     return order
   },
@@ -496,6 +563,11 @@ export const OrderRepository = {
       if (paymentState) order.paymentState = paymentState
       order.updatedAt = new Date().toISOString()
       syncToStorage()
+      try {
+        await FirestoreOrderService.save(order)
+      } catch (err) {
+        console.warn('Firebase order status update notice:', err)
+      }
       await AuditLogRepository.addLog('Order Status Changed', `Order #${order.orderNumber} changed to ${status}`, 'Owner')
       return order
     }

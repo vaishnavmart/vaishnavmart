@@ -23,6 +23,8 @@ import {
 } from 'lucide-react'
 import { NotificationRepository } from '@/lib/data/repositories'
 import { AdminNotification } from '@/types'
+import { auth } from '@/lib/firebase/config'
+import { onAuthStateChanged } from 'firebase/auth'
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -34,18 +36,52 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   // Verify auth session
   useEffect(() => {
-    fetch('/api/auth/owner-login')
-      .then((res) => res.json())
-      .then((data) => {
-        if (!data.isAuthenticated) {
+    let isMounted = true
+
+    const verifySession = async () => {
+      try {
+        const res = await fetch('/api/auth/owner-login')
+        const data = await res.json()
+        if (data.isAuthenticated) {
+          return
+        }
+
+        // Fallback: check if active Firebase user is an authorized admin
+        const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+          if (fbUser?.email) {
+            try {
+              const exchangeRes = await fetch('/api/auth/owner-login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: fbUser.email, authType: 'google' }),
+              })
+              const exchangeData = await exchangeRes.json()
+              if (exchangeRes.ok && exchangeData.success) {
+                return
+              }
+            } catch {
+              // Fall through to redirect
+            }
+          }
+          if (isMounted) {
+            router.push('/owner-login')
+          }
+        })
+
+        return () => unsubscribe()
+      } catch {
+        if (isMounted) {
           router.push('/owner-login')
         }
-      })
-      .catch(() => {
-        router.push('/owner-login')
-      })
+      }
+    }
 
+    verifySession()
     NotificationRepository.getNotifications().then(setNotifications)
+
+    return () => {
+      isMounted = false
+    }
   }, [router])
 
   const handleLogout = async () => {
