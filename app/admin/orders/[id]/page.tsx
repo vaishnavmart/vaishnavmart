@@ -17,7 +17,16 @@ import {
   XCircle,
   Phone,
   Mail,
+  Printer,
+  FileSpreadsheet,
+  Tag,
+  Download,
 } from 'lucide-react'
+import {
+  generateOrderInvoicePDF,
+  generateDeliveryStickerPDF,
+  exportOrdersToCSV,
+} from '@/lib/utils/invoiceGenerator'
 
 export default function AdminOrderDetailPage() {
   const params = useParams()
@@ -88,8 +97,41 @@ export default function AdminOrderDetailPage() {
           </div>
         </div>
 
-        {/* Quick Action Buttons */}
+        {/* Quick Action Buttons & Print / Export Tools */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Sticker & Invoice Export Group */}
+          <div className="flex items-center gap-1.5 p-1 bg-ivory border border-sand rounded-2xl shadow-xs">
+            <button
+              onClick={() => generateDeliveryStickerPDF(order)}
+              type="button"
+              className="px-3 py-2 rounded-xl text-xs font-semibold bg-burgundy text-ivory hover:bg-burgundy/90 transition-all flex items-center gap-1.5 shadow-xs"
+              title="Download 4x6 inch Delivery Box Sticker (Destination, Phone, Pantry Items)"
+            >
+              <Tag className="w-3.5 h-3.5" />
+              <span>Print Sticker (PDF)</span>
+            </button>
+
+            <button
+              onClick={() => generateOrderInvoicePDF(order)}
+              type="button"
+              className="px-3 py-2 rounded-xl text-xs font-semibold bg-porcelain border border-sand text-cocoa hover:border-gold hover:text-burgundy transition-all flex items-center gap-1.5"
+              title="Download Full A4 Tax Invoice PDF"
+            >
+              <Printer className="w-3.5 h-3.5 text-copper" />
+              <span>Invoice (PDF)</span>
+            </button>
+
+            <button
+              onClick={() => exportOrdersToCSV([order], `Order_${order.orderNumber}.csv`)}
+              type="button"
+              className="px-3 py-2 rounded-xl text-xs font-semibold bg-porcelain border border-sand text-cocoa hover:border-gold hover:text-burgundy transition-all flex items-center gap-1.5"
+              title="Export Order to CSV Spreadsheet"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-botanical" />
+              <span>CSV</span>
+            </button>
+          </div>
+
           {order.orderStatus === 'confirmed' && (
             <button
               onClick={() => handleUpdateStatus('processing')}

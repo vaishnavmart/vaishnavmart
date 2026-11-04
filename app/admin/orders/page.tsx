@@ -5,7 +5,8 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Order, OrderStatus } from '@/types'
 import { OrderRepository } from '@/lib/data/repositories'
-import { Search, Package, ArrowRight, User } from 'lucide-react'
+import { Search, Package, ArrowRight, User, FileSpreadsheet, Download } from 'lucide-react'
+import { exportOrdersToCSV } from '@/lib/utils/invoiceGenerator'
 
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
@@ -56,11 +57,27 @@ export default function AdminOrdersPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-serif text-3xl sm:text-4xl text-cocoa">Manage Orders</h1>
-        <p className="text-xs sm:text-sm text-taupe mt-1">
-          Review live patron orders, update packaging statuses, and verify customer payments.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="font-serif text-3xl sm:text-4xl text-cocoa">Manage Orders</h1>
+          <p className="text-xs sm:text-sm text-taupe mt-1">
+            Review live patron orders, generate delivery stickers, download invoices, and export CSV data.
+          </p>
+        </div>
+
+        {/* Bulk Export CSV Action */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => exportOrdersToCSV(orders, `All_Orders_Export_${new Date().toISOString().slice(0, 10)}.csv`)}
+            disabled={orders.length === 0}
+            type="button"
+            className="btn-secondary h-10 px-4 text-xs inline-flex items-center gap-2 hover:border-gold hover:text-burgundy disabled:opacity-50"
+            title="Export all currently displayed orders to CSV spreadsheet"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-botanical" />
+            <span>Export View to CSV ({orders.length})</span>
+          </button>
+        </div>
       </div>
 
       {/* Search & Filter Bar */}
