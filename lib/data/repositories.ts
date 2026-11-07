@@ -63,10 +63,26 @@ function syncFromStorage() {
   try {
     const p = localStorage.getItem('vm_products_v3')
     if (p) {
-      mockProductsStore = JSON.parse(p)
-      if (!mockProductsStore.some((pr) => pr.id === 'rk-kha-01' && pr.packOptions && pr.packOptions.length > 0)) {
+      try {
+        const parsed = JSON.parse(p)
+        if (Array.isArray(parsed) && parsed.length >= initialProducts.length) {
+          mockProductsStore = parsed
+        } else {
+          // Recover: merge stored custom values with baseline initialProducts
+          const productMap = new Map<string, Product>()
+          initialProducts.forEach((prod) => productMap.set(prod.id, { ...prod }))
+          if (Array.isArray(parsed)) {
+            parsed.forEach((sp: Product) => {
+              const ex = productMap.get(sp.id)
+              if (ex) productMap.set(sp.id, { ...ex, ...sp })
+              else productMap.set(sp.id, sp)
+            })
+          }
+          mockProductsStore = Array.from(productMap.values())
+          localStorage.setItem('vm_products_v3', JSON.stringify(mockProductsStore))
+        }
+      } catch {
         mockProductsStore = [...initialProducts]
-        localStorage.setItem('vm_products_v3', JSON.stringify(mockProductsStore))
       }
     } else {
       mockProductsStore = [...initialProducts]
@@ -74,7 +90,26 @@ function syncFromStorage() {
     }
     const c = localStorage.getItem('vm_categories_v3')
     if (c) {
-      mockCategoriesStore = JSON.parse(c)
+      try {
+        const parsedC = JSON.parse(c)
+        if (Array.isArray(parsedC) && parsedC.length >= initialCategories.length) {
+          mockCategoriesStore = parsedC
+        } else {
+          const catMap = new Map<string, Category>()
+          initialCategories.forEach((cat) => catMap.set(cat.id, { ...cat }))
+          if (Array.isArray(parsedC)) {
+            parsedC.forEach((sc: Category) => {
+              const ex = catMap.get(sc.id)
+              if (ex) catMap.set(sc.id, { ...ex, ...sc })
+              else catMap.set(sc.id, sc)
+            })
+          }
+          mockCategoriesStore = Array.from(catMap.values())
+          localStorage.setItem('vm_categories_v3', JSON.stringify(mockCategoriesStore))
+        }
+      } catch {
+        mockCategoriesStore = [...initialCategories]
+      }
     } else {
       mockCategoriesStore = [...initialCategories]
       localStorage.setItem('vm_categories_v3', JSON.stringify(mockCategoriesStore))
@@ -130,7 +165,18 @@ export const ProductRepository = {
       try {
         const liveProducts = await FirestoreProductService.getAll()
         if (liveProducts && liveProducts.length > 0) {
-          mockProductsStore = liveProducts
+          // Merge live products onto initialProducts so items not yet saved in Firestore are NEVER deleted
+          const productMap = new Map<string, Product>()
+          initialProducts.forEach((p) => productMap.set(p.id, { ...p }))
+          liveProducts.forEach((lp) => {
+            const existing = productMap.get(lp.id)
+            if (existing) {
+              productMap.set(lp.id, { ...existing, ...lp })
+            } else {
+              productMap.set(lp.id, lp)
+            }
+          })
+          mockProductsStore = Array.from(productMap.values())
         }
       } catch (err) {
         console.warn('Firestore getAllProducts notice:', err)
@@ -291,6 +337,26 @@ export const ProductRepository = {
 export const CategoryRepository = {
   async getAllCategories(): Promise<Category[]> {
     syncFromStorage()
+    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+      try {
+        const liveCategories = await FirestoreCategoryService.getAll()
+        if (liveCategories && liveCategories.length > 0) {
+          const catMap = new Map<string, Category>()
+          initialCategories.forEach((c) => catMap.set(c.id, { ...c }))
+          liveCategories.forEach((lc) => {
+            const existing = catMap.get(lc.id)
+            if (existing) {
+              catMap.set(lc.id, { ...existing, ...lc })
+            } else {
+              catMap.set(lc.id, lc)
+            }
+          })
+          mockCategoriesStore = Array.from(catMap.values())
+        }
+      } catch (err) {
+        console.warn('Firestore getAllCategories notice:', err)
+      }
+    }
     return [...mockCategoriesStore].sort((a, b) => a.sortOrder - b.sortOrder)
   },
 
