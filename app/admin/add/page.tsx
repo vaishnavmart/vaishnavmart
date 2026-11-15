@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { PlusCircle, Tag, Layout, ArrowRight } from 'lucide-react'
+import { PlusCircle, Tag, Layout, ArrowRight, FileSpreadsheet, Percent } from 'lucide-react'
 
 export default function AdminAddIndexPage() {
   const addOptions = [
@@ -11,11 +11,25 @@ export default function AdminAddIndexPage() {
       badge: '9-Step Wizard',
     },
     {
+      title: 'Bulk CSV Importer',
+      desc: 'Import 10 to 100+ stone-ground spices, fasting flours, and pantry items from a spreadsheet in seconds.',
+      icon: FileSpreadsheet,
+      href: '/admin/add/bulk-csv',
+      badge: 'Batch Spreadsheet',
+    },
+    {
       title: 'Add Category',
       desc: 'Create a new pantry collection for fasting staples, sweets, or festive seasonal lines.',
       icon: Tag,
       href: '/admin/add/category',
       badge: 'Collection',
+    },
+    {
+      title: 'Promo Coupon',
+      desc: 'Launch a festival discount code (like EKADASHI10 or VRAT50) with cart minimums and expiry rules.',
+      icon: Percent,
+      href: '/admin/coupons',
+      badge: 'Discounts',
     },
     {
       title: 'Add Section',
@@ -35,7 +49,7 @@ export default function AdminAddIndexPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
         {addOptions.map((opt) => {
           const IconComp = opt.icon
           return (

@@ -224,6 +224,77 @@ export default function AdminSettingsPage() {
           </div>
         </div>
 
+        {/* Sacred Festival & Fasting Calendar Mode */}
+        <div className="space-y-4 pt-4 border-t border-sand">
+          <h2 className="font-serif text-xl text-cocoa font-medium pb-2 border-b border-sand">
+            Sacred Fasting & Festival Mode
+          </h2>
+
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="festivalModeEnabled"
+              checked={settings.festivalMode?.enabled || false}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  festivalMode: {
+                    enabled: e.target.checked,
+                    name: settings.festivalMode?.name || 'Devutthana Ekadashi',
+                    bannerText:
+                      settings.festivalMode?.bannerText ||
+                      '🌿 Holy Ekadashi Special: Hand-roasted Vrat Khakhras & Kuttu flours ready for immediate dispatch.',
+                  },
+                })
+              }
+              className="accent-burgundy"
+            />
+            <label htmlFor="festivalModeEnabled" className="text-xs font-semibold text-cocoa cursor-pointer">
+              Activate Festival / Ekadashi Storefront Mode
+            </label>
+          </div>
+
+          {settings.festivalMode?.enabled && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wider text-taupe block mb-1">
+                  Festival / Fasting Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Devutthana Ekadashi / Paryushan Parva"
+                  value={settings.festivalMode?.name || ''}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      festivalMode: { ...settings.festivalMode!, name: e.target.value },
+                    })
+                  }
+                  className="w-full p-2.5 bg-porcelain border border-sand rounded-xl text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wider text-taupe block mb-1">
+                  Custom Devotional Banner Copy
+                </label>
+                <input
+                  type="text"
+                  placeholder="Special purity banner for devotees..."
+                  value={settings.festivalMode?.bannerText || ''}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      festivalMode: { ...settings.festivalMode!, bannerText: e.target.value },
+                    })
+                  }
+                  className="w-full p-2.5 bg-porcelain border border-sand rounded-xl text-xs"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="pt-4 border-t border-sand flex justify-end">
           <button type="submit" disabled={saving} className="btn-primary text-sm px-8 h-11">
             <span>{saving ? 'Saving...' : 'Save Settings'}</span>

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
+import crypto from 'crypto'
 
 const DEFAULT_ADMIN_EMAILS = [
   'raskanwork@gmail.com',
@@ -17,9 +18,21 @@ const DEFAULT_ADMIN_PASSWORDS = [
   'vaishnav123',
 ]
 
+function timingSafeMatch(candidate: string, target: string): boolean {
+  try {
+    const a = Buffer.from(candidate, 'utf8')
+    const b = Buffer.from(target, 'utf8')
+    if (a.length !== b.length) return false
+    return crypto.timingSafeEqual(a, b)
+  } catch {
+    return false
+  }
+}
+
 export async function POST(request: Request) {
   try {
-    const { email, password, authType, idToken } = await request.json()
+    const body = await request.json().catch(() => ({}))
+    const { email, password, authType, idToken } = body
 
     const inputEmail = (email || '').trim().toLowerCase()
     const inputPassword = (password || '').trim()
@@ -45,10 +58,21 @@ export async function POST(request: Request) {
 
     const validPasswords = Array.from(new Set([...DEFAULT_ADMIN_PASSWORDS, ...envPasswords]))
 
-    const isEmailValid = validEmails.includes(inputEmail)
+    const isEmailValid = validEmails.some((allowed) => timingSafeMatch(inputEmail, allowed))
 
     // Mode 1: Firebase Google Authentication
     if (authType === 'google') {
+      // Must provide idToken to prevent unauthenticated POST forgery
+      if (!idToken || typeof idToken !== 'string') {
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'Invalid Google authentication request: missing verification token.',
+          },
+          { status: 400 }
+        )
+      }
+
       if (isEmailValid) {
         cookies().set('vm_admin_session', 'authenticated_owner', {
           httpOnly: true,
@@ -76,7 +100,7 @@ export async function POST(request: Request) {
     }
 
     // Mode 2: Password Authentication
-    const isPasswordValid = validPasswords.some((p) => p === inputPassword)
+    const isPasswordValid = validPasswords.some((p) => timingSafeMatch(p, inputPassword))
 
     if (isEmailValid && isPasswordValid) {
       cookies().set('vm_admin_session', 'authenticated_owner', {

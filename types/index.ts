@@ -57,6 +57,9 @@ export interface Product {
   nutrition?: string
   purityInfo?: string
   shippingInfo?: string
+  batchNumber?: string
+  mfgDate?: string
+  expiryDate?: string
   isDemo?: boolean
   isCombo?: boolean
   comboItemNames?: string[]
@@ -104,6 +107,8 @@ export interface UserProfile {
   defaultAddressId?: string
   profileComplete: boolean
   marketingConsent: boolean
+  status?: 'active' | 'suspended'
+  adminNotes?: string
   createdAt: string
   updatedAt: string
   lastActiveAt: string
@@ -163,8 +168,14 @@ export interface Order {
   paymentState: PaymentState
   paymentMethod: 'mock' | 'razorpay' | 'cod'
   paymentId?: string
+  refundId?: string
+  refundAmount?: number
   orderStatus: OrderStatus
   notes?: string
+  trackingNumber?: string
+  courierPartner?: string
+  trackingUrl?: string
+  adminNotes?: string
   createdAt: string
   updatedAt: string
 }
@@ -252,6 +263,11 @@ export interface SiteSettings {
   }
   shippingText: string
   fssaiNumber?: string
+  festivalMode?: {
+    enabled: boolean
+    name: string
+    bannerText: string
+  }
   defaultSeoTitle: string
   defaultSeoDescription: string
 }
@@ -285,4 +301,23 @@ export interface LocationArea {
   deliveryTiming: string
   minOrder: number
   faqs: { question: string; answer: string }[]
+}
+
+export type DiscountType = 'percentage' | 'flat'
+
+export interface Coupon {
+  id: string
+  code: string
+  discountType: DiscountType
+  discountValue: number
+  minOrderAmount: number
+  maxDiscountAmount?: number
+  startDate?: string
+  expiryDate?: string
+  usageLimit?: number
+  timesUsed: number
+  active: boolean
+  description?: string
+  createdAt: string
+  updatedAt: string
 }

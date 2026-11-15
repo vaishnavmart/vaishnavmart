@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf'
-import { Order } from '@/types'
+import { Order, Product } from '@/types'
 
 /**
  * Cleanly formats delivery destination address
@@ -132,8 +132,8 @@ export function generateOrderInvoicePDF(order: Order): void {
   doc.text('VAISHNAVA MART', margin + 6, y + 10)
 
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(8.5)
-  doc.text('100% Pure Satvik Pantry & Temple Offerings', margin + 6, y + 16)
+  doc.setFontSize(8)
+  doc.text('100% Pure Satvik Pantry & Temple Offerings | FSSAI Lic. 10023011000987', margin + 6, y + 16)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(12)
@@ -306,22 +306,9 @@ export function generateOrderInvoicePDF(order: Order): void {
 }
 
 /**
- * Generate 4x6 inch (100mm x 150mm) Delivery Box Sticker PDF
- * Specifically engineered to peel & stick directly onto courier / delivery packages.
- * Includes:
- *  - Prominent Delivery Destination
- *  - Recipient Name & Phone Number
- *  - Clear Ordered Pantry Items list
- *  - Order # & Payment Method (COD / PREPAID)
+ * Helper to render single 4x6 delivery sticker onto a jsPDF document page
  */
-export function generateDeliveryStickerPDF(order: Order): void {
-  // 100mm wide x 150mm tall (Standard 4" x 6" thermal sticker / package label)
-  const doc = new jsPDF({
-    orientation: 'portrait',
-    unit: 'mm',
-    format: [100, 150],
-  })
-
+function renderStickerPage(doc: jsPDF, order: Order): void {
   const pageWidth = 100
   const margin = 4
   const contentWidth = pageWidth - margin * 2
@@ -452,7 +439,7 @@ export function generateDeliveryStickerPDF(order: Order): void {
     y += 4
   }
 
-  // COD Collection Box or Total Box at Bottom
+  // Bottom Box
   const bottomBoxY = 124
   doc.setLineWidth(0.4)
   doc.line(margin, bottomBoxY, pageWidth - margin, bottomBoxY)
@@ -482,6 +469,303 @@ export function generateDeliveryStickerPDF(order: Order): void {
     doc.setFont('helvetica', 'normal')
     doc.text('Full payment verified via Razorpay. Hand over to devotee directly.', margin + 4, bottomBoxY + 14)
   }
+}
 
+/**
+ * Generate 4x6 inch (100mm x 150mm) Delivery Box Sticker PDF for a single order
+ */
+export function generateDeliveryStickerPDF(order: Order): void {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: [100, 150],
+  })
+  renderStickerPage(doc, order)
   doc.save(`DeliverySticker_${order.orderNumber}.pdf`)
+}
+
+/**
+ * Generate Batch 4x6 inch Delivery Box Stickers PDF for multiple orders in 1 print run
+ */
+export function generateBatchDeliveryStickersPDF(orders: Order[]): void {
+  if (!orders || orders.length === 0) return
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: [100, 150],
+  })
+
+  orders.forEach((order, index) => {
+    if (index > 0) {
+      doc.addPage([100, 150], 'portrait')
+    }
+    renderStickerPage(doc, order)
+  })
+
+  doc.save(`Batch_Stickers_${orders.length}_Orders_${new Date().toISOString().slice(0, 10)}.pdf`)
+}
+
+/**
+ * Helper to render single warehouse packing slip onto a jsPDF A4 page
+ */
+function renderPackingSlipPage(doc: jsPDF, order: Order): void {
+  const pageWidth = doc.internal.pageSize.getWidth() // 210mm
+  const margin = 14
+  const contentWidth = pageWidth - margin * 2
+  let y = 14
+
+  // Top Warehouse Header
+  doc.setFillColor(45, 55, 72) // Slate #2D3748
+  doc.rect(margin, y, contentWidth, 20, 'F')
+
+  doc.setTextColor(255, 255, 255)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(14)
+  doc.text('VAISHNAVA MART — WAREHOUSE PICK & PACK SLIP', margin + 6, y + 9)
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.text('Satvik Cleanroom Fulfillment Center | FSSAI Lic. 10023011000987', margin + 6, y + 15)
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.text(`ORDER #${order.orderNumber}`, pageWidth - margin - 6, y + 9, { align: 'right' })
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.text(`Courier: ${(order.courierPartner || 'Shiprocket').toUpperCase()}`, pageWidth - margin - 6, y + 15, { align: 'right' })
+
+  y += 26
+
+  // Sacred Purity Guarantee Ribbon for Picker
+  doc.setFillColor(254, 243, 199)
+  doc.setDrawColor(245, 158, 11)
+  doc.roundedRect(margin, y, contentWidth, 10, 1.5, 1.5, 'FD')
+  doc.setTextColor(146, 64, 14)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7.5)
+  doc.text('TEMPLE STANDARD: Handle with washed hands. 100% Satvik, zero allium (no onion/garlic) contact permitted.', margin + 4, y + 6.5)
+
+  y += 15
+
+  // Two columns: Recipient destination & Order details
+  const colWidth = (contentWidth - 6) / 2
+
+  doc.setDrawColor(220, 220, 220)
+  doc.setFillColor(250, 250, 250)
+  doc.roundedRect(margin, y, colWidth, 34, 2, 2, 'FD')
+
+  doc.setTextColor(50, 50, 50)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8.5)
+  doc.text('SHIP TO / DEVOTEE DESTINATION', margin + 4, y + 6)
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.text(order.deliveryAddressSnapshot.fullName, margin + 4, y + 13)
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.text(`Phone: ${order.deliveryAddressSnapshot.phone}`, margin + 4, y + 19)
+  const fullAddress = formatDeliveryAddress(order)
+  const addressLines = doc.splitTextToSize(fullAddress, colWidth - 8)
+  doc.text(addressLines.slice(0, 2), margin + 4, y + 25)
+
+  // Right Box: Dispatch Details
+  const rightX = margin + colWidth + 6
+  doc.roundedRect(rightX, y, colWidth, 34, 2, 2, 'FD')
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8.5)
+  doc.text('FULFILLMENT SPECS', rightX + 4, y + 6)
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.text(`Order Date: ${new Date(order.createdAt).toLocaleDateString('en-IN')}`, rightX + 4, y + 13)
+  doc.text(`Payment: ${order.paymentMethod.toUpperCase()} (${order.paymentState.toUpperCase()})`, rightX + 4, y + 19)
+  doc.text(`AWB / Tracking: ${order.trackingNumber || 'Generate on dispatch'}`, rightX + 4, y + 25)
+  if (order.notes) {
+    doc.text(`Special Note: "${order.notes}"`, rightX + 4, y + 31)
+  }
+
+  y += 40
+
+  // Items Checklist Header
+  doc.setFillColor(230, 235, 240)
+  doc.rect(margin, y, contentWidth, 8, 'F')
+  doc.setTextColor(40, 50, 60)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.text('CHECK [√]', margin + 3, y + 5.5)
+  doc.text('#', margin + 22, y + 5.5)
+  doc.text('PANTRY ITEM & SPECIFICATION', margin + 30, y + 5.5)
+  doc.text('LOT / BATCH', margin + 125, y + 5.5)
+  doc.text('QTY TO PACK', pageWidth - margin - 4, y + 5.5, { align: 'right' })
+
+  y += 8
+
+  // Item Rows with Physical Checkboxes
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8.5)
+
+  order.items.forEach((item, index) => {
+    if (y > 250) {
+      doc.addPage()
+      y = 15
+    }
+
+    const rowBg = index % 2 === 0 ? 255 : 248
+    doc.setFillColor(rowBg, rowBg, rowBg)
+    doc.rect(margin, y, contentWidth, 9, 'F')
+
+    // Physical Picker Checkbox Square [ ]
+    doc.setDrawColor(120, 130, 140)
+    doc.setLineWidth(0.4)
+    doc.rect(margin + 5, y + 2, 5, 5)
+
+    doc.setTextColor(80, 80, 80)
+    doc.text(String(index + 1), margin + 22, y + 6)
+
+    doc.setTextColor(20, 20, 20)
+    doc.setFont('helvetica', 'bold')
+    const name = item.productNameSnapshot.length > 50
+      ? item.productNameSnapshot.substring(0, 48) + '...'
+      : item.productNameSnapshot
+    doc.text(name, margin + 30, y + 6)
+
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(90, 90, 90)
+    doc.text('VM-LOT-2026', margin + 125, y + 6)
+
+    doc.setTextColor(10, 10, 10)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.text(`${item.quantity} units`, pageWidth - margin - 4, y + 6.2, { align: 'right' })
+    doc.setFontSize(8.5)
+
+    doc.setDrawColor(230, 230, 230)
+    doc.line(margin, y + 9, pageWidth - margin, y + 9)
+
+    y += 9
+  })
+
+  y += 8
+
+  // Quality Inspection & Sign-off Box
+  if (y > 240) {
+    doc.addPage()
+    y = 15
+  }
+
+  doc.setDrawColor(200, 205, 210)
+  doc.setFillColor(252, 252, 252)
+  doc.roundedRect(margin, y, contentWidth, 24, 2, 2, 'FD')
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(60, 70, 80)
+  doc.text('WAREHOUSE SANCTITY & QUALITY VERIFICATION SIGN-OFF', margin + 4, y + 6)
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7.5)
+  doc.text('Picker Signature: _______________________', margin + 4, y + 14)
+  doc.text('Quality Inspector: _______________________', margin + 70, y + 14)
+  doc.text('Pack Date / Time: _______________________', margin + 135, y + 14)
+
+  doc.text('Purity Seal Verified: [  ] YES   [  ] NO', margin + 4, y + 20)
+  doc.text('Tamper-Evident Tape Applied: [  ] YES', margin + 70, y + 20)
+  doc.text('Weight Verified: _______ kg', margin + 135, y + 20)
+}
+
+/**
+ * Generate A4 Warehouse Packing Slip PDF for an order
+ */
+export function generatePackingSlipPDF(order: Order): void {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  })
+  renderPackingSlipPage(doc, order)
+  doc.save(`PackingSlip_${order.orderNumber}.pdf`)
+}
+
+/**
+ * Generate Batch A4 Warehouse Packing Slips PDF for multiple orders
+ */
+export function generateBatchPackingSlipsPDF(orders: Order[]): void {
+  if (!orders || orders.length === 0) return
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  })
+  orders.forEach((order, index) => {
+    if (index > 0) doc.addPage()
+    renderPackingSlipPage(doc, order)
+  })
+  doc.save(`Batch_PackingSlips_${orders.length}_Orders_${new Date().toISOString().slice(0, 10)}.pdf`)
+}
+
+/**
+ * Export Low-Stock Raw Spice Mandi & Wholesale Procurement Sheet (CSV)
+ */
+export function exportMandiProcurementSheetCSV(products: Product[]): void {
+  const headers = [
+    'SKU',
+    'Product Name',
+    'Current Finished Units',
+    'Low Stock Alert Threshold',
+    'Shortfall Units to Mill/Pack',
+    'Pack Weight',
+    'Unit',
+    'Estimated Raw Spice Needed (Kg)',
+    'Current Batch Lot #',
+    'Expiry Date',
+    'Procurement Status',
+    'Mandi Sourcing Notes',
+  ]
+
+  const rows = products.map((p) => {
+    const threshold = p.lowStockThreshold || 10
+    const shortfall = Math.max(0, threshold * 2 - p.stock)
+    const weightInKg = p.unit === 'g' ? (p.weight / 1000) : p.unit === 'kg' ? p.weight : 0.1
+    const rawSpiceKg = (shortfall * weightInKg * 1.08).toFixed(2) // 8% milling & moisture loss allowance
+    const status = p.stock <= 0 ? 'CRITICAL - OUT OF STOCK' : p.stock <= threshold ? 'LOW STOCK - RESTOCK NOW' : 'HEALTHY'
+
+    const values = [
+      p.sku || '',
+      p.name,
+      p.stock,
+      threshold,
+      shortfall,
+      p.weight,
+      p.unit,
+      rawSpiceKg,
+      p.batchNumber || 'VM-LOT-2026',
+      p.expiryDate || '',
+      status,
+      'Procure pure grade raw whole spice from authorized mandi. Zero allium processing.',
+    ]
+
+    return values
+      .map((val) => {
+        const str = String(val ?? '')
+        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+          return `"${str.replace(/"/g, '""')}"`
+        }
+        return `"${str}"`
+      })
+      .join(',')
+  })
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n')
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `VaishnavaMart_Mandi_Procurement_${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
 }

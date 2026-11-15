@@ -7,11 +7,13 @@ import {
   SiteSettings,
   UserProfile,
   Order,
+  OrderItemSnapshot,
   Cart,
   AuditLog,
   AdminNotification,
   OrderStatus,
   PaymentState,
+  Coupon,
 } from '@/types'
 import {
   initialProducts,
@@ -23,6 +25,7 @@ import {
   initialCarts,
   initialAuditLogs,
   initialNotifications,
+  initialCoupons,
 } from './mockData'
 import {
   FirestoreProductService,
@@ -30,11 +33,14 @@ import {
   FirestorePageService,
   FirestoreOrderService,
   FirestoreUserService,
+  FirestoreAuditLogService,
+  FirestoreCouponService,
 } from '@/lib/firebase/firestoreService'
 
 // In-Memory Global Mock Store (Server & Client fallback)
 let mockProductsStore: Product[] = [...initialProducts]
 let mockCategoriesStore: Category[] = [...initialCategories]
+let mockCouponsStore: Coupon[] = [...initialCoupons]
 let mockPagesStore: Record<string, PageContent> = {
   home: { ...initialHomeSections },
 }
@@ -128,6 +134,13 @@ function syncFromStorage() {
     if (l) mockAuditLogsStore = JSON.parse(l)
     const n = localStorage.getItem('vm_notifications')
     if (n) mockNotificationsStore = JSON.parse(n)
+    const cp = localStorage.getItem('vm_coupons')
+    if (cp) {
+      try {
+        const parsedCp = JSON.parse(cp)
+        if (Array.isArray(parsedCp) && parsedCp.length > 0) mockCouponsStore = parsedCp
+      } catch {}
+    }
   } catch {
     // Ignore storage parse issues
   }
@@ -145,6 +158,7 @@ function syncToStorage() {
     localStorage.setItem('vm_carts', JSON.stringify(mockCartsStore))
     localStorage.setItem('vm_logs', JSON.stringify(mockAuditLogsStore))
     localStorage.setItem('vm_notifications', JSON.stringify(mockNotificationsStore))
+    localStorage.setItem('vm_coupons', JSON.stringify(mockCouponsStore))
   } catch {
     // Ignore storage write issues
   }
@@ -328,6 +342,81 @@ export const ProductRepository = {
   async getSimilarProducts(ids: string[]): Promise<Product[]> {
     syncFromStorage()
     return mockProductsStore.filter((p) => ids.includes(p.id) && p.status === 'active')
+  },
+
+  async bulkImportProducts(products: Product[]): Promise<number> {
+    syncFromStorage()
+    let count = 0
+    products.forEach((newProd) => {
+      const idx = mockProductsStore.findIndex((p) => p.id === newProd.id || (p.sku && newProd.sku && p.sku === newProd.sku))
+      if (idx >= 0) {
+        mockProductsStore[idx] = { ...mockProductsStore[idx], ...newProd, updatedAt: new Date().toISOString() }
+      } else {
+        mockProductsStore.unshift({ ...newProd, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+      }
+      count++
+    })
+    syncToStorage()
+
+    // Sync to Firestore in parallel batches
+    try {
+      await FirestoreProductService.seedAll(products)
+    } catch (err) {
+      console.warn('Firebase bulkImportProducts notice:', err)
+    }
+
+    await AuditLogRepository.addLog(
+      'Bulk Products Imported',
+      `Imported/updated ${count} catalog products from CSV spreadsheet`,
+      'Owner'
+    )
+
+    return count
+  },
+
+  async duplicateProduct(id: string): Promise<Product | null> {
+    syncFromStorage()
+    const original = mockProductsStore.find((p) => p.id === id)
+    if (!original) return null
+
+    const timestamp = Date.now()
+    const cleanSlugBase = original.slug.replace(/-copy(-\d+)?$/, '')
+    const newSlug = `${cleanSlugBase}-copy-${timestamp.toString().slice(-4)}`
+    const newId = `prod-clone-${timestamp}`
+    const newSku = original.sku ? `${original.sku}-CPY` : undefined
+
+    const clonedProduct: Product = {
+      ...JSON.parse(JSON.stringify(original)),
+      id: newId,
+      name: `${original.name} (Copy)`,
+      slug: newSlug,
+      sku: newSku,
+      status: 'draft',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      seo: {
+        ...(original.seo || { metaTitle: '', metaDescription: '', slug: '' }),
+        slug: newSlug,
+        metaTitle: `${original.seo?.metaTitle || original.name} (Copy) - Vaishnava Mart`,
+      },
+    }
+
+    mockProductsStore.unshift(clonedProduct)
+    syncToStorage()
+
+    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+      FirestoreProductService.save(clonedProduct).catch((err) => {
+        console.warn('Firebase duplicateProduct notice:', err)
+      })
+    }
+
+    await AuditLogRepository.addLog(
+      'Product Duplicated',
+      `Cloned product "${original.name}" as draft "${clonedProduct.name}" (ID: ${newId})`,
+      'Owner'
+    )
+
+    return clonedProduct
   },
 }
 
@@ -669,6 +758,127 @@ export const OrderRepository = {
     }
     return null
   },
+
+  async updateOrderDetails(
+    id: string,
+    details: {
+      trackingNumber?: string
+      courierPartner?: string
+      trackingUrl?: string
+      adminNotes?: string
+    }
+  ): Promise<Order | null> {
+    syncFromStorage()
+    let order = await this.getOrderById(id)
+    if (order) {
+      if (details.trackingNumber !== undefined) order.trackingNumber = details.trackingNumber
+      if (details.courierPartner !== undefined) order.courierPartner = details.courierPartner
+      if (details.trackingUrl !== undefined) order.trackingUrl = details.trackingUrl
+      if (details.adminNotes !== undefined) order.adminNotes = details.adminNotes
+      order.updatedAt = new Date().toISOString()
+      syncToStorage()
+      try {
+        await FirestoreOrderService.save(order)
+      } catch (err) {
+        console.warn('Firebase order details update notice:', err)
+      }
+      await AuditLogRepository.addLog(
+        'Order Updated',
+        `Logistics/notes updated for Order #${order.orderNumber} (${details.courierPartner || 'Logistics'})`,
+        'Owner'
+      )
+      return order
+    }
+    return null
+  },
+
+  async updateOrderItems(
+    id: string,
+    items: OrderItemSnapshot[],
+    options?: { adjustStock?: boolean }
+  ): Promise<Order | null> {
+    syncFromStorage()
+    let order = await this.getOrderById(id)
+    if (!order) return null
+
+    // Recalculate subtotal
+    const calculatedSubtotal = items.reduce(
+      (sum, item) => sum + item.priceSnapshot * item.quantity,
+      0
+    )
+    const shipping = calculatedSubtotal >= 499 ? 0 : 60
+    const finalTotal = Math.max(0, calculatedSubtotal + shipping - (order.discount || 0))
+
+    // Handle stock adjustment if requested
+    if (options?.adjustStock !== false) {
+      // Revert old items stock
+      order.items.forEach((oldItem) => {
+        const prod = mockProductsStore.find((p) => p.id === oldItem.productId)
+        if (prod) prod.stock += oldItem.quantity
+      })
+      // Deduct new items stock
+      items.forEach((newItem) => {
+        const prod = mockProductsStore.find((p) => p.id === newItem.productId)
+        if (prod) prod.stock = Math.max(0, prod.stock - newItem.quantity)
+      })
+    }
+
+    order.items = items
+    order.subtotal = calculatedSubtotal
+    order.shipping = shipping
+    order.finalTotal = finalTotal
+    order.updatedAt = new Date().toISOString()
+
+    syncToStorage()
+
+    try {
+      await FirestoreOrderService.save(order)
+    } catch (err) {
+      console.warn('Firebase order items update notice:', err)
+    }
+
+    await AuditLogRepository.addLog(
+      'Order Items Edited',
+      `Line items modified for Order #${order.orderNumber}. New Total: ₹${order.finalTotal} (${items.length} items)`,
+      'Owner'
+    )
+
+    return order
+  },
+
+  async markOrderRefunded(
+    id: string,
+    refundId: string,
+    refundAmount?: number
+  ): Promise<Order | null> {
+    syncFromStorage()
+    let order = await this.getOrderById(id)
+    if (!order) return null
+
+    order.paymentState = 'refunded'
+    order.orderStatus = 'cancelled'
+    order.refundId = refundId
+    if (refundAmount !== undefined) {
+      order.refundAmount = refundAmount
+    }
+    order.updatedAt = new Date().toISOString()
+
+    syncToStorage()
+
+    try {
+      await FirestoreOrderService.save(order)
+    } catch (err) {
+      console.warn('Firebase markOrderRefunded notice:', err)
+    }
+
+    await AuditLogRepository.addLog(
+      'Payment Refunded',
+      `Payment of ₹${order.refundAmount || order.finalTotal} refunded for Order #${order.orderNumber} (Refund ID: ${refundId})`,
+      'Owner'
+    )
+
+    return order
+  },
 }
 
 /* =====================================================================
@@ -827,6 +1037,16 @@ export const SettingsRepository = {
 export const AuditLogRepository = {
   async getLogs(): Promise<AuditLog[]> {
     syncFromStorage()
+    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+      try {
+        const liveLogs = await FirestoreAuditLogService.getAll(100)
+        if (liveLogs && liveLogs.length > 0) {
+          return liveLogs as AuditLog[]
+        }
+      } catch (err) {
+        console.warn('Firestore getLogs notice:', err)
+      }
+    }
     return [...mockAuditLogsStore].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
   },
 
@@ -841,6 +1061,11 @@ export const AuditLogRepository = {
     mockAuditLogsStore.unshift(log)
     if (mockAuditLogsStore.length > 100) mockAuditLogsStore.pop()
     syncToStorage()
+
+    // Persist to Cloud Firestore
+    FirestoreAuditLogService.save(log).catch((err) => {
+      console.warn('Firebase auditLog save notice:', err)
+    })
   },
 }
 
@@ -868,6 +1093,159 @@ export const NotificationRepository = {
     }
     mockNotificationsStore.unshift(newNotif)
     syncToStorage()
+  },
+}
+
+/* =====================================================================
+   COUPON & PROMOTION REPOSITORY (Sacred Offers & Discounts)
+===================================================================== */
+export const CouponRepository = {
+  async getAllCoupons(): Promise<Coupon[]> {
+    syncFromStorage()
+    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+      try {
+        const live = await FirestoreCouponService.getAll()
+        if (live && live.length > 0) {
+          const couponMap = new Map<string, Coupon>()
+          initialCoupons.forEach((c) => couponMap.set(c.id, { ...c }))
+          live.forEach((lc) => couponMap.set(lc.id, lc))
+          mockCouponsStore = Array.from(couponMap.values())
+        }
+      } catch (err) {
+        console.warn('Firestore getAllCoupons notice:', err)
+      }
+    }
+    return [...mockCouponsStore]
+  },
+
+  async getCouponById(id: string): Promise<Coupon | null> {
+    const coupons = await this.getAllCoupons()
+    return coupons.find((c) => c.id === id) || null
+  },
+
+  async getCouponByCode(code: string): Promise<Coupon | null> {
+    if (!code) return null
+    const cleanCode = code.trim().toUpperCase()
+    const coupons = await this.getAllCoupons()
+    return coupons.find((c) => c.code.toUpperCase() === cleanCode) || null
+  },
+
+  async saveCoupon(coupon: Coupon): Promise<Coupon> {
+    syncFromStorage()
+    const clean: Coupon = {
+      ...coupon,
+      code: coupon.code.trim().toUpperCase(),
+      updatedAt: new Date().toISOString(),
+    }
+    const idx = mockCouponsStore.findIndex((c) => c.id === clean.id)
+    if (idx >= 0) {
+      mockCouponsStore[idx] = clean
+      await AuditLogRepository.addLog(
+        'Coupon Updated',
+        `Updated promo coupon "${clean.code}" (${clean.discountType === 'percentage' ? `${clean.discountValue}%` : `Rs.${clean.discountValue}`})`,
+        'Owner'
+      )
+    } else {
+      clean.createdAt = new Date().toISOString()
+      mockCouponsStore.unshift(clean)
+      await AuditLogRepository.addLog(
+        'Coupon Created',
+        `Created new promo coupon "${clean.code}" (${clean.discountType === 'percentage' ? `${clean.discountValue}%` : `Rs.${clean.discountValue}`})`,
+        'Owner'
+      )
+    }
+    syncToStorage()
+
+    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+      FirestoreCouponService.save(clean).catch(() => {})
+    }
+
+    return clean
+  },
+
+  async deleteCoupon(id: string): Promise<void> {
+    syncFromStorage()
+    const coupon = mockCouponsStore.find((c) => c.id === id)
+    mockCouponsStore = mockCouponsStore.filter((c) => c.id !== id)
+    syncToStorage()
+
+    if (coupon) {
+      await AuditLogRepository.addLog('Coupon Deleted', `Deleted promo coupon "${coupon.code}"`, 'Owner')
+    }
+
+    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+      FirestoreCouponService.remove(id).catch(() => {})
+    }
+  },
+
+  async validateCoupon(code: string, subtotal: number): Promise<{
+    valid: boolean
+    discount: number
+    message: string
+    coupon?: Coupon
+  }> {
+    if (!code || !code.trim()) {
+      return { valid: false, discount: 0, message: 'Please enter a coupon code.' }
+    }
+
+    const coupon = await this.getCouponByCode(code)
+    if (!coupon) {
+      return { valid: false, discount: 0, message: `Coupon "${code.toUpperCase()}" is invalid.` }
+    }
+
+    if (!coupon.active) {
+      return { valid: false, discount: 0, message: `Coupon "${coupon.code}" is currently inactive.` }
+    }
+
+    const now = new Date()
+    if (coupon.startDate && new Date(coupon.startDate) > now) {
+      return { valid: false, discount: 0, message: `Coupon "${coupon.code}" is not active yet.` }
+    }
+
+    if (coupon.expiryDate && new Date(coupon.expiryDate) < now) {
+      return { valid: false, discount: 0, message: `Coupon "${coupon.code}" has expired.` }
+    }
+
+    if (coupon.usageLimit && coupon.timesUsed >= coupon.usageLimit) {
+      return { valid: false, discount: 0, message: `Coupon "${coupon.code}" redemption limit reached.` }
+    }
+
+    if (subtotal < coupon.minOrderAmount) {
+      return {
+        valid: false,
+        discount: 0,
+        message: `Add Rs. ${coupon.minOrderAmount - subtotal} more to apply "${coupon.code}" (Min order Rs. ${coupon.minOrderAmount}).`,
+      }
+    }
+
+    let calculatedDiscount = 0
+    if (coupon.discountType === 'percentage') {
+      const rawDiscount = Math.round((subtotal * coupon.discountValue) / 100)
+      calculatedDiscount = coupon.maxDiscountAmount ? Math.min(coupon.maxDiscountAmount, rawDiscount) : rawDiscount
+    } else {
+      calculatedDiscount = Math.min(subtotal, coupon.discountValue)
+    }
+
+    return {
+      valid: true,
+      discount: calculatedDiscount,
+      message: `Coupon "${coupon.code}" applied! You save Rs. ${calculatedDiscount}.`,
+      coupon,
+    }
+  },
+
+  async incrementUsage(code: string): Promise<void> {
+    syncFromStorage()
+    const cleanCode = code.trim().toUpperCase()
+    const coupon = mockCouponsStore.find((c) => c.code.toUpperCase() === cleanCode)
+    if (coupon) {
+      coupon.timesUsed = (coupon.timesUsed || 0) + 1
+      coupon.updatedAt = new Date().toISOString()
+      syncToStorage()
+      if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+        FirestoreCouponService.save(coupon).catch(() => {})
+      }
+    }
   },
 }
 

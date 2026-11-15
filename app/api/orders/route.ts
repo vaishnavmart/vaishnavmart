@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
 import { FirestoreOrderService } from '@/lib/firebase/firestoreService'
-import { OrderRepository } from '@/lib/data/repositories'
+import { OrderRepository, ProductRepository, CouponRepository } from '@/lib/data/repositories'
 import { Order } from '@/types'
 
 export const dynamic = 'force-dynamic'
@@ -9,15 +10,72 @@ export async function POST(request: Request) {
   try {
     const rawOrder = await request.json()
 
-    if (!rawOrder || !rawOrder.id || !Array.isArray(rawOrder.items)) {
+    if (!rawOrder || !rawOrder.id || !Array.isArray(rawOrder.items) || rawOrder.items.length === 0) {
       return NextResponse.json(
-        { success: false, message: 'Invalid order payload' },
+        { success: false, message: 'Invalid order payload: items array required.' },
         { status: 400 }
       )
     }
 
-    // Deep sanitize to strip any undefined values that Firestore rejects
+    // Deep copy
     const cleanOrder: Order = JSON.parse(JSON.stringify(rawOrder))
+
+    // Server-side Price & Integrity Recalculation
+    let calculatedSubtotal = 0
+    for (const item of cleanOrder.items) {
+      if (!item.productId || typeof item.quantity !== 'number' || item.quantity <= 0) {
+        return NextResponse.json(
+          { success: false, message: 'Invalid order item data' },
+          { status: 400 }
+        )
+      }
+
+      // Look up true canonical product
+      const product = await ProductRepository.getProductById(item.productId)
+      if (product) {
+        // Enforce true catalog price to prevent client-side price tampering
+        item.priceSnapshot = product.price
+        item.mrpSnapshot = product.mrp
+        item.productNameSnapshot = product.name
+        if (product.mainImage) {
+          item.imageSnapshot = product.mainImage
+        }
+      }
+
+      calculatedSubtotal += (item.priceSnapshot || 0) * item.quantity
+    }
+
+    cleanOrder.subtotal = calculatedSubtotal
+
+    // Canonical shipping rule: orders >= 499 get free shipping, otherwise Rs. 60
+    const calculatedShipping = calculatedSubtotal >= 499 ? 0 : 60
+    cleanOrder.shipping = calculatedShipping
+
+    // Server-side Coupon & Discount Verification
+    let verifiedDiscount = 0
+    const suppliedCouponCode = rawOrder.couponCode || (cleanOrder as any).couponCode
+    if (suppliedCouponCode) {
+      const couponCheck = await CouponRepository.validateCoupon(suppliedCouponCode, calculatedSubtotal)
+      if (couponCheck.valid) {
+        verifiedDiscount = couponCheck.discount
+        await CouponRepository.incrementUsage(suppliedCouponCode)
+      }
+    }
+    cleanOrder.discount = verifiedDiscount
+    cleanOrder.finalTotal = Math.max(0, calculatedSubtotal + calculatedShipping - verifiedDiscount)
+
+    // Security check on payment state: COD must start as pending
+    if (cleanOrder.paymentMethod === 'cod') {
+      cleanOrder.paymentState = 'pending'
+    }
+
+    // Default status for incoming verified orders
+    if (!cleanOrder.orderStatus) {
+      cleanOrder.orderStatus = 'new'
+    }
+
+    cleanOrder.createdAt = cleanOrder.createdAt || new Date().toISOString()
+    cleanOrder.updatedAt = new Date().toISOString()
 
     // 1. Persist directly to Cloud Firestore
     await FirestoreOrderService.save(cleanOrder)
@@ -28,7 +86,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       order: cleanOrder,
-      message: 'Order created and persisted successfully',
+      message: 'Order created, verified, and persisted successfully',
     })
   } catch (err: any) {
     console.error('[API Orders] Failed to persist order:', err)
@@ -50,6 +108,15 @@ export async function GET(request: Request) {
         return NextResponse.json({ success: false, message: 'Order not found' }, { status: 404 })
       }
       return NextResponse.json({ success: true, order })
+    }
+
+    // Bulk orders fetch requires Superadmin session
+    const adminCookie = cookies().get('vm_admin_session')
+    if (adminCookie?.value !== 'authenticated_owner') {
+      return NextResponse.json(
+        { success: false, message: 'Unauthorized. Superadmin session required to list orders.' },
+        { status: 401 }
+      )
     }
 
     const orders = await OrderRepository.getOrders()

@@ -20,6 +20,7 @@ import {
   Menu,
   X,
   Bell,
+  Tag,
 } from 'lucide-react'
 import { NotificationRepository } from '@/lib/data/repositories'
 import { AdminNotification } from '@/types'
@@ -99,6 +100,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   ]
 
   const moreLinks = [
+    { href: '/admin/coupons', label: 'Coupons & Offers', icon: Tag },
     { href: '/admin/inventory', label: 'Inventory', icon: Boxes },
     { href: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
     { href: '/admin/settings', label: 'Settings', icon: Settings },

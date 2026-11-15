@@ -1,4 +1,4 @@
-import { Product, Category, PageContent, SiteSettings, UserProfile, Order, Cart, AuditLog, AdminNotification, LocationArea } from '@/types'
+import { Product, Category, PageContent, SiteSettings, UserProfile, Order, Cart, AuditLog, AdminNotification, LocationArea, Coupon } from '@/types'
 
 export const initialSiteSettings: SiteSettings = {
   businessName: 'Vaishnava Mart (Ras Kan)',
@@ -2441,5 +2441,58 @@ export const initialLocations: LocationArea[] = [
         answer: 'All powders and dry fruits are sealed in multi-layer aroma barrier tin jars and vacuum pouches to preserve volatile oils.',
       },
     ],
+  },
+]
+
+export const initialCoupons: Coupon[] = [
+  {
+    id: 'coup-ekadashi',
+    code: 'EKADASHI10',
+    discountType: 'percentage',
+    discountValue: 10,
+    minOrderAmount: 499,
+    maxDiscountAmount: 150,
+    timesUsed: 18,
+    active: true,
+    description: '10% discount on sacred fasting groceries and whole spices (Min order Rs. 499)',
+    createdAt: '2026-10-01T00:00:00Z',
+    updatedAt: '2026-10-01T00:00:00Z',
+  },
+  {
+    id: 'coup-vrat',
+    code: 'VRAT50',
+    discountType: 'flat',
+    discountValue: 50,
+    minOrderAmount: 599,
+    timesUsed: 34,
+    active: true,
+    description: 'Flat Rs. 50 festival discount on cart subtotal above Rs. 599',
+    createdAt: '2026-10-05T00:00:00Z',
+    updatedAt: '2026-10-05T00:00:00Z',
+  },
+  {
+    id: 'coup-radha',
+    code: 'RADHAASHTAMI',
+    discountType: 'percentage',
+    discountValue: 15,
+    minOrderAmount: 799,
+    maxDiscountAmount: 200,
+    timesUsed: 42,
+    active: true,
+    description: '15% divine festival offering discount on stone-ground masalas and fasting flours',
+    createdAt: '2026-09-15T00:00:00Z',
+    updatedAt: '2026-09-15T00:00:00Z',
+  },
+  {
+    id: 'coup-welcome',
+    code: 'SATVIK100',
+    discountType: 'flat',
+    discountValue: 100,
+    minOrderAmount: 999,
+    timesUsed: 12,
+    active: true,
+    description: 'Flat Rs. 100 discount on grand temple orders above Rs. 999',
+    createdAt: '2026-10-10T00:00:00Z',
+    updatedAt: '2026-10-10T00:00:00Z',
   },
 ]

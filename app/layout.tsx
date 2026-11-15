@@ -1,32 +1,10 @@
 import type { Metadata } from 'next'
 import Script from 'next/script'
-import { Cormorant_Garamond, Manrope, Rozha_One } from 'next/font/google'
 import './globals.css'
 import { AuthProvider } from '@/lib/auth/AuthContext'
 import { CartProvider } from '@/lib/data/CartContext'
 import { WishlistProvider } from '@/lib/data/WishlistContext'
 import { StoreLayoutWrapper } from '@/components/store/StoreLayoutWrapper'
-
-const cormorant = Cormorant_Garamond({
-  subsets: ['latin'],
-  variable: '--font-cormorant',
-  weight: ['400', '500', '600', '700'],
-  display: 'swap',
-})
-
-const manrope = Manrope({
-  subsets: ['latin'],
-  variable: '--font-manrope',
-  weight: ['300', '400', '500', '600', '700'],
-  display: 'swap',
-})
-
-const rozhaOne = Rozha_One({
-  subsets: ['devanagari', 'latin'],
-  variable: '--font-devanagari',
-  weight: ['400'],
-  display: 'swap',
-})
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://vaishnavamart.com'
 
@@ -162,7 +140,7 @@ export default function RootLayout({
   }
 
   return (
-    <html lang="en" className={`${cormorant.variable} ${manrope.variable} ${rozhaOne.variable}`}>
+    <html lang="en">
       <head>
         <script
           type="application/ld+json"

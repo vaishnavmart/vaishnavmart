@@ -5,8 +5,8 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Order, OrderStatus } from '@/types'
 import { OrderRepository } from '@/lib/data/repositories'
-import { Search, Package, ArrowRight, User, FileSpreadsheet, Download } from 'lucide-react'
-import { exportOrdersToCSV } from '@/lib/utils/invoiceGenerator'
+import { Search, Package, ArrowRight, User, FileSpreadsheet, Download, Tag, ClipboardList } from 'lucide-react'
+import { exportOrdersToCSV, generateBatchDeliveryStickersPDF, generateBatchPackingSlipsPDF } from '@/lib/utils/invoiceGenerator'
 
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
@@ -65,8 +65,30 @@ export default function AdminOrdersPage() {
           </p>
         </div>
 
-        {/* Bulk Export CSV Action */}
-        <div className="flex items-center gap-2">
+        {/* Bulk Export & Batch Print Actions */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => generateBatchDeliveryStickersPDF(orders)}
+            disabled={orders.length === 0}
+            type="button"
+            className="btn-primary h-10 px-4 text-xs inline-flex items-center gap-2 bg-burgundy hover:bg-burgundy/90 text-ivory disabled:opacity-50 shadow-xs"
+            title="Download multi-page 4x6 delivery sticker roll for all displayed orders"
+          >
+            <Tag className="w-4 h-4 text-gold" />
+            <span>Print All Stickers ({orders.length})</span>
+          </button>
+
+          <button
+            onClick={() => generateBatchPackingSlipsPDF(orders)}
+            disabled={orders.length === 0}
+            type="button"
+            className="btn-secondary h-10 px-4 text-xs inline-flex items-center gap-2 hover:border-gold hover:text-burgundy disabled:opacity-50"
+            title="Download multi-page A4 warehouse pick & pack slips for morning dispatch"
+          >
+            <ClipboardList className="w-4 h-4 text-copper" />
+            <span>Batch Packing Slips ({orders.length})</span>
+          </button>
+
           <button
             onClick={() => exportOrdersToCSV(orders, `All_Orders_Export_${new Date().toISOString().slice(0, 10)}.csv`)}
             disabled={orders.length === 0}

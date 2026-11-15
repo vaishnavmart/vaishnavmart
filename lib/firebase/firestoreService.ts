@@ -12,11 +12,12 @@ import {
   limit,
 } from 'firebase/firestore'
 import { db } from './config'
-import { Product, Category, PageContent, Order, UserProfile } from '@/types'
+import { Product, Category, PageContent, Order, UserProfile, Coupon } from '@/types'
 import {
   initialProducts,
   initialCategories,
   initialHomeSections,
+  initialCoupons,
 } from '@/lib/data/mockData'
 
 /* =====================================================================
@@ -174,14 +175,15 @@ export const FirestorePageService = {
    CUSTOMER ORDERS
 ===================================================================== */
 export const FirestoreOrderService = {
-  async getAll(): Promise<Order[]> {
+  async getAll(maxCount = 100): Promise<Order[]> {
     try {
-      const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'))
+      const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(maxCount))
       const snap = await getDocs(q)
       return snap.docs.map((d) => d.data() as Order)
     } catch (err) {
       try {
-        const snap = await getDocs(collection(db, 'orders'))
+        const q2 = query(collection(db, 'orders'), limit(maxCount))
+        const snap = await getDocs(q2)
         return snap.docs.map((d) => d.data() as Order)
       } catch (innerErr) {
         console.warn('Firestore orders fetch fallback:', innerErr)
@@ -231,9 +233,10 @@ export const FirestoreOrderService = {
    USERS / CUSTOMER PROFILES
 ===================================================================== */
 export const FirestoreUserService = {
-  async getAll(): Promise<UserProfile[]> {
+  async getAll(maxCount = 100): Promise<UserProfile[]> {
     try {
-      const snap = await getDocs(collection(db, 'users'))
+      const q = query(collection(db, 'users'), limit(maxCount))
+      const snap = await getDocs(q)
       const users = snap.docs.map((d) => d.data() as UserProfile)
       return users.sort(
         (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
@@ -264,6 +267,85 @@ export const FirestoreUserService = {
     } catch (err) {
       console.warn('Firestore user save fallback:', err)
       return user
+    }
+  },
+}
+
+/* =====================================================================
+   AUDIT LOGS (Immutable Owner Trail)
+===================================================================== */
+export const FirestoreAuditLogService = {
+  async getAll(maxCount = 50): Promise<any[]> {
+    try {
+      const q = query(collection(db, 'auditLogs'), orderBy('timestamp', 'desc'), limit(maxCount))
+      const snap = await getDocs(q)
+      return snap.docs.map((d) => d.data())
+    } catch (err) {
+      console.warn('Firestore auditLogs fetch fallback:', err)
+      return []
+    }
+  },
+
+  async save(log: any): Promise<void> {
+    try {
+      const ref = doc(db, 'auditLogs', log.id)
+      await setDoc(ref, log, { merge: true })
+    } catch (err) {
+      console.warn('Firestore auditLog save fallback:', err)
+    }
+  },
+}
+
+/* =====================================================================
+   COUPONS & PROMOTIONS (Active Sacred Offers)
+===================================================================== */
+export const FirestoreCouponService = {
+  async getAll(): Promise<Coupon[]> {
+    try {
+      const snap = await getDocs(collection(db, 'coupons'))
+      if (snap.empty) {
+        return []
+      }
+      return snap.docs.map((d) => d.data() as Coupon)
+    } catch (err) {
+      console.warn('Firestore coupons fetch fallback:', err)
+      return []
+    }
+  },
+
+  async getByCode(code: string): Promise<Coupon | null> {
+    try {
+      const cleanCode = code.trim().toUpperCase()
+      const q = query(collection(db, 'coupons'), where('code', '==', cleanCode), limit(1))
+      const snap = await getDocs(q)
+      if (!snap.empty) {
+        return snap.docs[0].data() as Coupon
+      }
+      return null
+    } catch (err) {
+      console.warn('Firestore coupon getByCode fallback:', err)
+      return null
+    }
+  },
+
+  async save(coupon: Coupon): Promise<Coupon> {
+    try {
+      const clean = JSON.parse(JSON.stringify(coupon))
+      const ref = doc(db, 'coupons', clean.id)
+      await setDoc(ref, clean, { merge: true })
+      return clean
+    } catch (err) {
+      console.warn('Firestore coupon save fallback:', err)
+      return coupon
+    }
+  },
+
+  async remove(id: string): Promise<void> {
+    try {
+      const ref = doc(db, 'coupons', id)
+      await deleteDoc(ref)
+    } catch (err) {
+      console.warn('Firestore coupon remove fallback:', err)
     }
   },
 }

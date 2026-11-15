@@ -1,9 +1,9 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, Suspense } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Product, Category, ProductFeature } from '@/types'
 import { ProductRepository, CategoryRepository } from '@/lib/data/repositories'
 import {
@@ -16,6 +16,8 @@ import {
   Eye,
   Plus,
   Trash2,
+  Copy,
+  Edit,
 } from 'lucide-react'
 
 const wizardSteps = [
@@ -30,8 +32,14 @@ const wizardSteps = [
   '9. Review',
 ]
 
-export default function AddProductWizardPage() {
+function AddProductWizardContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const editId = searchParams.get('edit')
+  const cloneFromId = searchParams.get('cloneFrom')
+
+  const [activeMode, setActiveMode] = useState<'create' | 'edit' | 'clone'>('create')
+  const [originalProductId, setOriginalProductId] = useState<string | null>(null)
   const [currentStep, setCurrentStep] = useState(1)
   const [categories, setCategories] = useState<Category[]>([])
   const [existingProducts, setExistingProducts] = useState<Product[]>([])
@@ -89,21 +97,75 @@ export default function AddProductWizardPage() {
       ])
       setCategories(cats)
       setExistingProducts(prods)
+
+      const targetId = editId || cloneFromId
+      if (targetId) {
+        const prod = prods.find((p) => p.id === targetId) || (await ProductRepository.getProductById(targetId))
+        if (prod) {
+          if (editId) {
+            setActiveMode('edit')
+            setOriginalProductId(prod.id)
+            setName(prod.name)
+            setSlug(prod.slug)
+            setStatus(prod.status)
+          } else {
+            setActiveMode('clone')
+            setName(`${prod.name} (Copy)`)
+            const cleanSlugBase = prod.slug.replace(/-copy(-\d+)?$/, '')
+            setSlug(`${cleanSlugBase}-copy-${Date.now().toString().slice(-4)}`)
+            setStatus('draft')
+          }
+          if (prod.images && prod.images.length > 0) {
+            const padded = [...prod.images]
+            while (padded.length < 4) {
+              padded.push(prod.mainImage || '/images/generated/prod-shahi-masala.jpg')
+            }
+            setImages(padded.slice(0, 4))
+          }
+          setMrp(prod.mrp)
+          setPrice(prod.price)
+          setStock(prod.stock)
+          setLowStockThreshold(prod.lowStockThreshold || 10)
+          setSku(cloneFromId && prod.sku ? `${prod.sku}-CPY` : prod.sku || 'VM-MAS-NEW')
+          setWeight(prod.weight)
+          setUnit(prod.unit)
+          setDescription(prod.description)
+          if (prod.features && prod.features.length > 0) {
+            setFeatures(prod.features)
+          }
+          if (prod.categoryIds && prod.categoryIds.length > 0) {
+            setSelectedCategoryIds(prod.categoryIds)
+          } else if (cats.length > 0) {
+            setSelectedCategoryIds([cats[0].id])
+          }
+          if (prod.similarProductIds) {
+            setSimilarProductIds(prod.similarProductIds)
+          }
+          if (prod.seo) {
+            setMetaTitle(prod.seo.metaTitle)
+            setMetaDescription(prod.seo.metaDescription)
+          }
+          return
+        }
+      }
+
       if (cats.length > 0) setSelectedCategoryIds([cats[0].id])
     }
     load()
-  }, [])
+  }, [editId, cloneFromId])
 
   // Auto slug generation
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value
     setName(val)
-    const autoSlug = val
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-    setSlug(autoSlug)
-    setMetaTitle(`${val} | Vaishnava Mart`)
+    if (activeMode !== 'edit') {
+      const autoSlug = val
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+      setSlug(autoSlug)
+      setMetaTitle(`${val} | Vaishnava Mart`)
+    }
   }
 
   // Word count check
@@ -134,10 +196,13 @@ export default function AddProductWizardPage() {
     setErrorMessage('')
 
     try {
-      const newProduct: Product = {
-        id: `prod-${Date.now()}`,
+      const targetId = activeMode === 'edit' && originalProductId ? originalProductId : `prod-${Date.now()}`
+      const existing = existingProducts.find((p) => p.id === targetId)
+
+      const savedProduct: Product = {
+        id: targetId,
         name,
-        slug: slug || `prod-${Date.now()}`,
+        slug: slug || targetId,
         description,
         images,
         mainImage: images[0],
@@ -157,12 +222,12 @@ export default function AddProductWizardPage() {
           metaDescription: metaDescription || description.slice(0, 160),
           slug,
         },
-        createdAt: new Date().toISOString(),
+        createdAt: existing?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }
 
-      await ProductRepository.saveProduct(newProduct)
-      router.push(`/${newProduct.slug}`)
+      await ProductRepository.saveProduct(savedProduct)
+      router.push('/admin/inventory')
     } catch (err: any) {
       setErrorMessage(err.message || 'Error saving product')
       setIsSubmitting(false)
@@ -175,24 +240,49 @@ export default function AddProductWizardPage() {
       <div className="flex items-center justify-between pb-6 border-b border-sand">
         <div className="flex items-center gap-3">
           <Link
-            href="/admin/add"
+            href="/admin/inventory"
             className="p-2 rounded-xl bg-ivory border border-sand hover:text-burgundy"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div>
-            <h1 className="font-serif text-2xl sm:text-3xl text-cocoa">Add Product Wizard</h1>
+            <h1 className="font-serif text-2xl sm:text-3xl text-cocoa">
+              {activeMode === 'edit' ? 'Edit Product' : activeMode === 'clone' ? 'Duplicate & Customize Product' : 'Add Product Wizard'}
+            </h1>
             <p className="text-xs text-taupe">Step {currentStep} of 9: {wizardSteps[currentStep - 1]}</p>
           </div>
         </div>
 
         <button
           onClick={handlePublishProduct}
-          className="btn-secondary h-10 px-4 text-xs"
+          disabled={isSubmitting}
+          className="btn-primary text-xs h-10 px-5 shadow-xs"
         >
-          Save Draft Now
+          {isSubmitting ? 'Saving...' : activeMode === 'edit' ? 'Save Changes' : 'Publish Product'}
         </button>
       </div>
+
+      {/* Mode Banner */}
+      {activeMode === 'clone' && (
+        <div className="p-3 bg-cream border border-gold/40 rounded-2xl text-cocoa text-xs flex items-center justify-between">
+          <span className="flex items-center gap-1.5 font-medium">
+            <Copy className="w-4 h-4 text-burgundy" />
+            Cloning product into a new draft. All sacred specifications, purity guarantees, and images pre-filled.
+          </span>
+          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-gold/20 text-burgundy">
+            Draft Copy
+          </span>
+        </div>
+      )}
+      {activeMode === 'edit' && (
+        <div className="p-3 bg-porcelain border border-sand rounded-2xl text-cocoa text-xs flex items-center justify-between">
+          <span className="flex items-center gap-1.5 font-medium">
+            <Edit className="w-4 h-4 text-copper" />
+            Editing live catalog item. Saving will immediately update this product across the storefront.
+          </span>
+          <span className="font-mono text-[10px] text-taupe">{originalProductId}</span>
+        </div>
+      )}
 
       {/* 9 Steps Progress Bar */}
       <div className="overflow-x-auto pb-2">
@@ -658,5 +748,20 @@ export default function AddProductWizardPage() {
         ) : null}
       </div>
     </div>
+  )
+}
+
+export default function AddProductWizardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-12 text-center space-y-3">
+          <div className="w-8 h-8 border-2 border-burgundy border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="font-serif text-sm text-cocoa">Loading Satvik Product Studio...</p>
+        </div>
+      }
+    >
+      <AddProductWizardContent />
+    </Suspense>
   )
 }

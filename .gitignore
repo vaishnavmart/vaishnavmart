@@ -5,7 +5,9 @@
 .yarn/install-state.gz
 
 # Next.js Build & Outputs
+.next/
 /.next/
+public_html/.next/
 /out/
 /build
 /dist
