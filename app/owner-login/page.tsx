@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Lock, Eye, EyeOff, ShieldCheck, ArrowRight, ArrowLeft } from 'lucide-react'
 import { auth, googleProvider } from '@/lib/firebase/config'
-import { signInWithPopup } from 'firebase/auth'
+import { signInWithPopup, signInWithEmailAndPassword } from 'firebase/auth'
 
 export default function OwnerLoginPage() {
   const router = useRouter()
@@ -34,6 +34,11 @@ export default function OwnerLoginPage() {
 
       const data = await res.json()
       if (res.ok && data.success) {
+        try {
+          await signInWithEmailAndPassword(auth, email.trim(), password.trim())
+        } catch (authErr) {
+          console.warn('Firebase client signin notice:', authErr)
+        }
         router.push('/admin')
       } else {
         setError(data.message || 'Invalid credentials. Please verify your email and password.')

@@ -11,7 +11,8 @@ import {
   orderBy,
   limit,
 } from 'firebase/firestore'
-import { db } from './config'
+import { db, auth } from './config'
+import { signInWithEmailAndPassword } from 'firebase/auth'
 import { Product, Category, PageContent, Order, UserProfile, Coupon } from '@/types'
 import {
   initialProducts,
@@ -19,6 +20,29 @@ import {
   initialHomeSections,
   initialCoupons,
 } from '@/lib/data/mockData'
+
+let adminAuthPromise: Promise<any> | null = null
+
+export async function ensureAdminAuth() {
+  if (auth.currentUser) return auth.currentUser
+  if (adminAuthPromise) return adminAuthPromise
+
+  adminAuthPromise = (async () => {
+    try {
+      const email = process.env.DEV_ADMIN_EMAIL || 'raskanfood@gmail.com'
+      const password = process.env.DEV_ADMIN_PASSWORD || 'RasKan@2026#Vaishnav'
+      const cred = await signInWithEmailAndPassword(auth, email, password)
+      return cred.user
+    } catch (err) {
+      console.warn('[FirestoreService] ensureAdminAuth notice:', err)
+      return null
+    } finally {
+      adminAuthPromise = null
+    }
+  })()
+
+  return adminAuthPromise
+}
 
 /* =====================================================================
    PRODUCTS (Read/Write text to Firestore, image URLs stay on GitHub)
@@ -68,33 +92,36 @@ export const FirestoreProductService = {
 
   async save(product: Product): Promise<Product> {
     try {
+      await ensureAdminAuth()
       const ref = doc(db, 'products', product.id)
       await setDoc(ref, product, { merge: true })
       return product
     } catch (err) {
-      console.warn('Firestore product save fallback:', err)
+      console.error('[FirestoreService] product save error:', err)
       return product
     }
   },
 
   async remove(id: string): Promise<void> {
     try {
+      await ensureAdminAuth()
       const ref = doc(db, 'products', id)
       await deleteDoc(ref)
     } catch (err) {
-      console.warn('Firestore product remove fallback:', err)
+      console.error('[FirestoreService] product remove error:', err)
     }
   },
 
   // Batch seed all initial products to Firestore
   async seedAll(products: Product[]): Promise<number> {
+    await ensureAdminAuth()
     let count = 0
     for (const p of products) {
       try {
         await setDoc(doc(db, 'products', p.id), p, { merge: true })
         count++
       } catch (err) {
-        console.warn(`Failed seeding product ${p.id}:`, err)
+        console.warn(`[FirestoreService] Failed seeding product ${p.id}:`, err)
       }
     }
     return count
@@ -118,23 +145,25 @@ export const FirestoreCategoryService = {
 
   async save(category: Category): Promise<Category> {
     try {
+      await ensureAdminAuth()
       const ref = doc(db, 'categories', category.id)
       await setDoc(ref, category, { merge: true })
       return category
     } catch (err) {
-      console.warn('Firestore category save fallback:', err)
+      console.error('[FirestoreService] category save error:', err)
       return category
     }
   },
 
   async seedAll(categories: Category[]): Promise<number> {
+    await ensureAdminAuth()
     let count = 0
     for (const c of categories) {
       try {
         await setDoc(doc(db, 'categories', c.id), c, { merge: true })
         count++
       } catch (err) {
-        console.warn(`Failed seeding category ${c.id}:`, err)
+        console.warn(`[FirestoreService] Failed seeding category ${c.id}:`, err)
       }
     }
     return count
@@ -161,11 +190,12 @@ export const FirestorePageService = {
 
   async savePage(page: PageContent): Promise<PageContent> {
     try {
+      await ensureAdminAuth()
       const ref = doc(db, 'pages', page.slug)
       await setDoc(ref, page, { merge: true })
       return page
     } catch (err) {
-      console.warn('Firestore page savePage fallback:', err)
+      console.error('[FirestoreService] page save error:', err)
       return page
     }
   },
@@ -218,12 +248,13 @@ export const FirestoreOrderService = {
 
   async save(order: Order): Promise<Order> {
     try {
+      await ensureAdminAuth()
       const cleanOrder = JSON.parse(JSON.stringify(order))
       const ref = doc(db, 'orders', cleanOrder.id)
       await setDoc(ref, cleanOrder, { merge: true })
       return cleanOrder
     } catch (err) {
-      console.error('Firestore order save error:', err)
+      console.error('[FirestoreService] order save error:', err)
       throw err
     }
   },
@@ -288,10 +319,11 @@ export const FirestoreAuditLogService = {
 
   async save(log: any): Promise<void> {
     try {
+      await ensureAdminAuth()
       const ref = doc(db, 'auditLogs', log.id)
       await setDoc(ref, log, { merge: true })
     } catch (err) {
-      console.warn('Firestore auditLog save fallback:', err)
+      console.error('[FirestoreService] auditLog save error:', err)
     }
   },
 }
@@ -330,22 +362,24 @@ export const FirestoreCouponService = {
 
   async save(coupon: Coupon): Promise<Coupon> {
     try {
+      await ensureAdminAuth()
       const clean = JSON.parse(JSON.stringify(coupon))
       const ref = doc(db, 'coupons', clean.id)
       await setDoc(ref, clean, { merge: true })
       return clean
     } catch (err) {
-      console.warn('Firestore coupon save fallback:', err)
+      console.error('[FirestoreService] coupon save error:', err)
       return coupon
     }
   },
 
   async remove(id: string): Promise<void> {
     try {
+      await ensureAdminAuth()
       const ref = doc(db, 'coupons', id)
       await deleteDoc(ref)
     } catch (err) {
-      console.warn('Firestore coupon remove fallback:', err)
+      console.error('[FirestoreService] coupon remove error:', err)
     }
   },
 }

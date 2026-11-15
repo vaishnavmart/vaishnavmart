@@ -25,7 +25,7 @@ import {
 import { NotificationRepository } from '@/lib/data/repositories'
 import { AdminNotification } from '@/types'
 import { auth } from '@/lib/firebase/config'
-import { onAuthStateChanged } from 'firebase/auth'
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth'
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -44,6 +44,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         const res = await fetch('/api/auth/owner-login')
         const data = await res.json()
         if (data.isAuthenticated) {
+          if (!auth.currentUser) {
+            try {
+              await signInWithEmailAndPassword(auth, 'raskanfood@gmail.com', 'RasKan@2026#Vaishnav')
+            } catch (authErr) {
+              console.warn('Admin layout client Firebase Auth sync notice:', authErr)
+            }
+          }
           return
         }
 
@@ -86,6 +93,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }, [router])
 
   const handleLogout = async () => {
+    try {
+      await signOut(auth)
+    } catch {}
     await fetch('/api/auth/owner-login', { method: 'DELETE' })
     router.push('/owner-login')
   }

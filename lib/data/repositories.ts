@@ -179,18 +179,14 @@ export const ProductRepository = {
       try {
         const liveProducts = await FirestoreProductService.getAll()
         if (liveProducts && liveProducts.length > 0) {
-          // Merge live products onto initialProducts so items not yet saved in Firestore are NEVER deleted
+          // Live products in Firestore are the primary source of truth
           const productMap = new Map<string, Product>()
           initialProducts.forEach((p) => productMap.set(p.id, { ...p }))
           liveProducts.forEach((lp) => {
-            const existing = productMap.get(lp.id)
-            if (existing) {
-              productMap.set(lp.id, { ...existing, ...lp })
-            } else {
-              productMap.set(lp.id, lp)
-            }
+            productMap.set(lp.id, lp)
           })
           mockProductsStore = Array.from(productMap.values())
+          syncToStorage()
         }
       } catch (err) {
         console.warn('Firestore getAllProducts notice:', err)
@@ -262,10 +258,12 @@ export const ProductRepository = {
     }
     syncToStorage()
 
-    // Sync to Firebase Firestore asynchronously
-    FirestoreProductService.save(saved).catch((err) => {
-      console.warn('Firebase product save notice:', err)
-    })
+    // Sync to Firebase Firestore
+    try {
+      await FirestoreProductService.save(saved)
+    } catch (err) {
+      console.error('Firebase product save error:', err)
+    }
 
     return saved
   },
@@ -276,11 +274,19 @@ export const ProductRepository = {
     if (soft) {
       if (prod) {
         prod.status = 'hidden'
-        FirestoreProductService.save(prod).catch(() => {})
+        try {
+          await FirestoreProductService.save(prod)
+        } catch (err) {
+          console.error('Firebase product soft delete error:', err)
+        }
       }
     } else {
       mockProductsStore = mockProductsStore.filter((p) => p.id !== id)
-      FirestoreProductService.remove(id).catch(() => {})
+      try {
+        await FirestoreProductService.remove(id)
+      } catch (err) {
+        console.error('Firebase product delete error:', err)
+      }
     }
     if (prod) {
       await AuditLogRepository.addLog('Product Deleted', `Removed product: ${prod.name}`, 'Owner')
@@ -405,9 +411,11 @@ export const ProductRepository = {
     syncToStorage()
 
     if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
-      FirestoreProductService.save(clonedProduct).catch((err) => {
-        console.warn('Firebase duplicateProduct notice:', err)
-      })
+      try {
+        await FirestoreProductService.save(clonedProduct)
+      } catch (err) {
+        console.error('Firebase duplicateProduct error:', err)
+      }
     }
 
     await AuditLogRepository.addLog(
@@ -433,14 +441,10 @@ export const CategoryRepository = {
           const catMap = new Map<string, Category>()
           initialCategories.forEach((c) => catMap.set(c.id, { ...c }))
           liveCategories.forEach((lc) => {
-            const existing = catMap.get(lc.id)
-            if (existing) {
-              catMap.set(lc.id, { ...existing, ...lc })
-            } else {
-              catMap.set(lc.id, lc)
-            }
+            catMap.set(lc.id, lc)
           })
           mockCategoriesStore = Array.from(catMap.values())
+          syncToStorage()
         }
       } catch (err) {
         console.warn('Firestore getAllCategories notice:', err)
@@ -476,9 +480,11 @@ export const CategoryRepository = {
     }
     syncToStorage()
 
-    FirestoreCategoryService.save(category).catch((err) => {
-      console.warn('Firebase category save notice:', err)
-    })
+    try {
+      await FirestoreCategoryService.save(category)
+    } catch (err) {
+      console.error('Firebase category save error:', err)
+    }
 
     return category
   },
