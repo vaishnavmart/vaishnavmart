@@ -10,29 +10,42 @@ import { Plus, Minus, Trash2, ArrowRight, ShieldCheck, Tag, ShoppingBag } from '
 
 export default function CartPage() {
   const router = useRouter()
-  const { items, itemCount, subtotal, shippingCost, total, updateQuantity, removeFromCart } = useCart()
+  const {
+    items,
+    itemCount,
+    subtotal,
+    shippingCost,
+    total,
+    discount,
+    finalTotal,
+    appliedCoupon,
+    applyCoupon,
+    removeCoupon,
+    updateQuantity,
+    removeFromCart,
+  } = useCart()
   const { isAuthenticated, user, setIsLoginModalOpen, setIsProfileModalOpen } = useAuth()
 
   const [couponCode, setCouponCode] = useState('')
-  const [discount, setDiscount] = useState(0)
   const [couponError, setCouponError] = useState('')
-  const [couponApplied, setCouponApplied] = useState(false)
+  const [isApplying, setIsApplying] = useState(false)
 
-  const handleApplyCoupon = (e: React.FormEvent) => {
+  const handleApplyCoupon = async (e: React.FormEvent) => {
     e.preventDefault()
     setCouponError('')
-    if (couponCode.trim().toUpperCase() === 'SATVIK50') {
-      setDiscount(50)
-      setCouponApplied(true)
-    } else if (couponCode.trim().toUpperCase() === 'EKADASHI') {
-      setDiscount(75)
-      setCouponApplied(true)
+    if (!couponCode.trim()) {
+      setCouponError('Please enter a coupon code.')
+      return
+    }
+    setIsApplying(true)
+    const result = await applyCoupon(couponCode)
+    setIsApplying(false)
+    if (!result.valid) {
+      setCouponError(result.message)
     } else {
-      setCouponError('Invalid coupon code. Try "SATVIK50"')
+      setCouponCode('')
     }
   }
-
-  const finalTotal = Math.max(0, total - discount)
 
   const handleProceedToCheckout = () => {
     if (!isAuthenticated) {
@@ -108,9 +121,28 @@ export default function CartPage() {
                     <p className="text-[11px] sm:text-xs text-taupe mt-0.5">
                       Net Wt: {product.weight} {product.unit}
                     </p>
-                    <p className="font-semibold text-sm sm:text-base text-burgundy mt-1">
-                      ₹{product.price}
-                    </p>
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <span className="font-semibold text-sm sm:text-base text-burgundy">
+                        ₹{product.price}
+                      </span>
+                      {product.mrp > product.price && (
+                        <>
+                          <span className="text-xs text-taupe line-through">
+                            ₹{product.mrp}
+                          </span>
+                          {(() => {
+                            const disc = product.discountPercent !== undefined
+                              ? product.discountPercent
+                              : (product.mrp > 0 ? Math.round(((product.mrp - product.price) / product.mrp) * 100) : 0)
+                            return disc > 0 ? (
+                              <span className="text-[10px] font-bold text-botanical uppercase bg-botanical/10 px-1.5 py-0.5 rounded">
+                                {disc}% OFF
+                              </span>
+                            ) : null
+                          })()}
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between pt-2">
@@ -157,31 +189,57 @@ export default function CartPage() {
             <div className="p-6 sm:p-8 bg-porcelain rounded-3xl border border-sand shadow-sm space-y-6">
               <h2 className="font-serif text-2xl text-cocoa">Order Summary</h2>
 
-              {/* Coupon Form */}
-              <form onSubmit={handleApplyCoupon} className="space-y-2">
-                <label className="text-xs uppercase font-semibold text-taupe tracking-wider block">
-                  Promo / Coupon Code
-                </label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Tag className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-taupe/60" />
-                    <input
-                      type="text"
-                      placeholder="e.g. SATVIK50"
-                      value={couponCode}
-                      onChange={(e) => setCouponCode(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2.5 bg-ivory border border-sand rounded-xl text-xs uppercase font-mono tracking-wider focus:border-burgundy outline-none"
-                    />
+              {/* Coupon Section */}
+              {appliedCoupon ? (
+                <div className="p-3 bg-botanical/10 border border-botanical/30 rounded-2xl flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-botanical/20 flex items-center justify-center text-botanical">
+                      <Tag className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="font-mono text-xs font-bold text-botanical uppercase tracking-wider">
+                        {appliedCoupon.code}
+                      </p>
+                      <p className="text-[11px] text-cocoa/80">
+                        {appliedCoupon.description || `₹${discount} discount applied`}
+                      </p>
+                    </div>
                   </div>
-                  <button type="submit" className="btn-secondary h-10 px-4 text-xs">
-                    Apply
+                  <button
+                    type="button"
+                    onClick={removeCoupon}
+                    className="text-xs text-clay hover:underline font-medium px-2 py-1"
+                  >
+                    Remove
                   </button>
                 </div>
-                {couponError && <p className="text-xs text-clay">{couponError}</p>}
-                {couponApplied && (
-                  <p className="text-xs text-botanical font-medium">✓ Coupon applied! ₹{discount} saved</p>
-                )}
-              </form>
+              ) : (
+                <form onSubmit={handleApplyCoupon} className="space-y-2">
+                  <label className="text-xs uppercase font-semibold text-taupe tracking-wider block">
+                    Promo / Coupon Code
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Tag className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-taupe/60" />
+                      <input
+                        type="text"
+                        placeholder="e.g. KARTIKMASS10, SATVIK100"
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2.5 bg-ivory border border-sand rounded-xl text-xs uppercase font-mono tracking-wider focus:border-burgundy outline-none"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isApplying}
+                      className="btn-secondary h-10 px-4 text-xs disabled:opacity-50"
+                    >
+                      {isApplying ? 'Checking...' : 'Apply'}
+                    </button>
+                  </div>
+                  {couponError && <p className="text-xs text-clay">{couponError}</p>}
+                </form>
+              )}
 
               {/* Line Items */}
               <div className="space-y-3 text-sm text-taupe border-t border-sand pt-4">
@@ -190,8 +248,8 @@ export default function CartPage() {
                   <span className="font-medium text-cocoa">₹{subtotal}</span>
                 </div>
                 {discount > 0 && (
-                  <div className="flex justify-between text-botanical">
-                    <span>Discount</span>
+                  <div className="flex justify-between text-botanical font-medium">
+                    <span>Discount {appliedCoupon ? `(${appliedCoupon.code})` : ''}</span>
                     <span>-₹{discount}</span>
                   </div>
                 )}

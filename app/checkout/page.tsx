@@ -17,12 +17,24 @@ import {
   Plus,
   ArrowRight,
   AlertCircle,
+  Tag,
 } from 'lucide-react'
 
 export default function CheckoutPage() {
   const router = useRouter()
   const { user, isAuthenticated, addAddress } = useAuth()
-  const { items, subtotal, shippingCost, total, clearCart } = useCart()
+  const {
+    items,
+    subtotal,
+    shippingCost,
+    total,
+    discount,
+    finalTotal,
+    appliedCoupon,
+    applyCoupon,
+    removeCoupon,
+    clearCart,
+  } = useCart()
 
   const [currentStage, setCurrentStage] = useState<1 | 2 | 3>(1)
   const [selectedAddressId, setSelectedAddressId] = useState<string>('')
@@ -30,6 +42,26 @@ export default function CheckoutPage() {
   const [paymentMethod, setPaymentMethod] = useState<'razorpay' | 'cod'>('razorpay')
   const [isProcessing, setIsProcessing] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [checkoutCouponCode, setCheckoutCouponCode] = useState('')
+  const [checkoutCouponError, setCheckoutCouponError] = useState('')
+  const [isApplyingCoupon, setIsApplyingCoupon] = useState(false)
+
+  const handleApplyCheckoutCoupon = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setCheckoutCouponError('')
+    if (!checkoutCouponCode.trim()) {
+      setCheckoutCouponError('Please enter a coupon code.')
+      return
+    }
+    setIsApplyingCoupon(true)
+    const res = await applyCoupon(checkoutCouponCode)
+    setIsApplyingCoupon(false)
+    if (!res.valid) {
+      setCheckoutCouponError(res.message)
+    } else {
+      setCheckoutCouponCode('')
+    }
+  }
 
   // New address form state
   const [isAddingNewAddress, setIsAddingNewAddress] = useState(false)
@@ -116,9 +148,10 @@ export default function CheckoutPage() {
           deliveryAddressSnapshot: selectedAddress,
           items: itemSnapshots,
           subtotal,
-          discount: 0,
+          discount: discount || 0,
+          couponCode: appliedCoupon?.code || undefined,
           shipping: shippingCost,
-          finalTotal: total,
+          finalTotal: finalTotal,
           paymentState: method === 'cod' ? 'pending' : 'paid',
           paymentMethod: method,
           paymentId: payId,
@@ -173,9 +206,13 @@ export default function CheckoutPage() {
       // Online Live Razorpay Payment
       const paymentProvider = getPaymentProvider()
       const paymentOrder = await paymentProvider.createOrder({
-        amount: total,
+        amount: finalTotal,
         receipt: `rcpt_${Date.now()}`,
-        notes: { userId: user.uid, customerEmail: user.email || '' },
+        notes: {
+          userId: user.uid,
+          customerEmail: user.email || '',
+          couponCode: appliedCoupon?.code || '',
+        },
       })
 
       // If Razorpay SDK is loaded in window
@@ -563,7 +600,19 @@ export default function CheckoutPage() {
                       </div>
                       <div>
                         <p className="font-medium text-cocoa">{product.name}</p>
-                        <p className="text-taupe">{product.weight ? `${product.weight}${product.unit} • ` : ''}Qty: {quantity} × ₹{product.price}</p>
+                        <p className="text-taupe">
+                          {product.weight ? `${product.weight}${product.unit} • ` : ''}Qty: {quantity} × ₹{product.price}
+                          {product.mrp > product.price && (() => {
+                            const disc = product.discountPercent !== undefined
+                              ? product.discountPercent
+                              : (product.mrp > 0 ? Math.round(((product.mrp - product.price) / product.mrp) * 100) : 0)
+                            return disc > 0 ? (
+                              <span className="ml-1 text-[11px] font-semibold text-botanical">
+                                ({disc}% OFF)
+                              </span>
+                            ) : null
+                          })()}
+                        </p>
                       </div>
                     </div>
                     <span className="font-semibold text-sm text-cocoa">₹{product.price * quantity}</span>
@@ -572,19 +621,79 @@ export default function CheckoutPage() {
               </div>
             </div>
 
+            {/* Coupon / Promo Code Block */}
+            <div className="p-4 bg-porcelain rounded-2xl border border-sand space-y-3">
+              <span className="text-xs uppercase font-semibold text-taupe tracking-wider block">
+                Have a Coupon / Promo Code?
+              </span>
+              {appliedCoupon ? (
+                <div className="p-3 bg-botanical/10 border border-botanical/30 rounded-xl flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-botanical/20 flex items-center justify-center text-botanical">
+                      <Tag className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="font-mono text-xs font-bold text-botanical uppercase tracking-wider">
+                        {appliedCoupon.code}
+                      </p>
+                      <p className="text-[11px] text-cocoa/80">
+                        {appliedCoupon.description || `₹${discount} discount applied`}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={removeCoupon}
+                    className="text-xs text-clay hover:underline font-medium px-2 py-1"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleApplyCheckoutCoupon} className="space-y-2">
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Tag className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-taupe/60" />
+                      <input
+                        type="text"
+                        placeholder="e.g. KARTIKMASS10, SATVIK100"
+                        value={checkoutCouponCode}
+                        onChange={(e) => setCheckoutCouponCode(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 bg-ivory border border-sand rounded-xl text-xs uppercase font-mono tracking-wider focus:border-burgundy outline-none"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isApplyingCoupon}
+                      className="btn-secondary h-9 px-4 text-xs disabled:opacity-50"
+                    >
+                      {isApplyingCoupon ? 'Checking...' : 'Apply'}
+                    </button>
+                  </div>
+                  {checkoutCouponError && <p className="text-xs text-clay">{checkoutCouponError}</p>}
+                </form>
+              )}
+            </div>
+
             {/* Final Total Summary */}
             <div className="p-4 bg-cream/50 rounded-2xl border border-sand space-y-2 text-xs text-taupe">
               <div className="flex justify-between">
                 <span>Subtotal</span>
                 <span className="font-medium text-cocoa">₹{subtotal}</span>
               </div>
+              {discount > 0 && (
+                <div className="flex justify-between text-botanical font-medium">
+                  <span>Promo Discount {appliedCoupon ? `(${appliedCoupon.code})` : ''}</span>
+                  <span>-₹{discount}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span>Delivery</span>
                 <span>{shippingCost === 0 ? 'Complimentary Free' : `₹${shippingCost}`}</span>
               </div>
               <div className="flex justify-between text-base font-bold text-cocoa pt-2 border-t border-sand">
                 <span>Final Total Payable</span>
-                <span className="text-burgundy text-xl">₹{total}</span>
+                <span className="text-burgundy text-xl">₹{finalTotal}</span>
               </div>
             </div>
 

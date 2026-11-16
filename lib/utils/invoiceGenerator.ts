@@ -267,29 +267,41 @@ export function generateOrderInvoicePDF(order: Order): void {
 
   // Totals Box (Right aligned)
   const totalsBoxWidth = 75
+  const hasDiscount = Boolean(order.discount && order.discount > 0)
+  const totalsBoxHeight = hasDiscount ? 32 : 26
   const totalsBoxX = pageWidth - margin - totalsBoxWidth
   doc.setDrawColor(220, 215, 205)
   doc.setFillColor(252, 250, 247)
-  doc.roundedRect(totalsBoxX, y, totalsBoxWidth, 26, 2, 2, 'FD')
+  doc.roundedRect(totalsBoxX, y, totalsBoxWidth, totalsBoxHeight, 2, 2, 'FD')
 
   doc.setFontSize(8)
   doc.setTextColor(80, 75, 70)
   doc.text('Items Subtotal:', totalsBoxX + 4, y + 7)
   doc.text(`Rs. ${order.subtotal}`, totalsBoxX + totalsBoxWidth - 4, y + 7, { align: 'right' })
 
-  doc.text('Delivery Charge:', totalsBoxX + 4, y + 13)
-  doc.text(order.shipping === 0 ? 'FREE' : `Rs. ${order.shipping}`, totalsBoxX + totalsBoxWidth - 4, y + 13, { align: 'right' })
+  let currentLineY = y + 13
+  if (hasDiscount) {
+    doc.setTextColor(160, 50, 60)
+    doc.text(`Discount ${order.couponCode ? `(${order.couponCode})` : ''}:`, totalsBoxX + 4, currentLineY)
+    doc.text(`-Rs. ${order.discount}`, totalsBoxX + totalsBoxWidth - 4, currentLineY, { align: 'right' })
+    currentLineY += 6
+    doc.setTextColor(80, 75, 70)
+  }
 
+  doc.text('Delivery Charge:', totalsBoxX + 4, currentLineY)
+  doc.text(order.shipping === 0 ? 'FREE' : `Rs. ${order.shipping}`, totalsBoxX + totalsBoxWidth - 4, currentLineY, { align: 'right' })
+
+  currentLineY += 4
   doc.setDrawColor(200, 190, 180)
-  doc.line(totalsBoxX + 4, y + 17, totalsBoxX + totalsBoxWidth - 4, y + 17)
+  doc.line(totalsBoxX + 4, currentLineY, totalsBoxX + totalsBoxWidth - 4, currentLineY)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(10)
   doc.setTextColor(107, 30, 39)
-  doc.text('Final Total:', totalsBoxX + 4, y + 23)
-  doc.text(`Rs. ${order.finalTotal}`, totalsBoxX + totalsBoxWidth - 4, y + 23, { align: 'right' })
+  doc.text('Final Total:', totalsBoxX + 4, currentLineY + 6)
+  doc.text(`Rs. ${order.finalTotal}`, totalsBoxX + totalsBoxWidth - 4, currentLineY + 6, { align: 'right' })
 
-  y += 34
+  y += totalsBoxHeight + 8
 
   // Devotional Footer
   doc.setDrawColor(220, 215, 205)
@@ -764,6 +776,170 @@ export function exportMandiProcurementSheetCSV(products: Product[]): void {
   const link = document.createElement('a')
   link.href = url
   link.download = `VaishnavaMart_Mandi_Procurement_${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * Build CSV string for Price & Discount Master
+ */
+export function buildPriceDiscountMasterCSVContent(
+  products: Product[],
+  categoryMap?: Record<string, string>
+): string {
+  const headers = [
+    'Product ID',
+    'SKU',
+    'Name',
+    'MRP',
+    'Price',
+    'Discount %',
+    'Stock',
+    'Category',
+    'Status',
+  ]
+
+  const rows = products.map((p) => {
+    const mrp = Number(p.mrp) || 0
+    const price = Number(p.price) || 0
+    const discountPercent =
+      mrp > 0 && mrp > price ? Math.round(((mrp - price) / mrp) * 100) : 0
+    const categoryName =
+      (categoryMap && p.categoryIds && p.categoryIds[0] && categoryMap[p.categoryIds[0]]) ||
+      (p.categoryIds && p.categoryIds[0]) ||
+      'General'
+
+    const values = [
+      p.id,
+      p.sku || '',
+      p.name,
+      mrp,
+      price,
+      discountPercent,
+      p.stock,
+      categoryName,
+      p.status,
+    ]
+
+    return values
+      .map((val) => {
+        const str = String(val ?? '')
+        if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+          return `"${str.replace(/"/g, '""')}"`
+        }
+        return `"${str}"`
+      })
+      .join(',')
+  })
+
+  return '\uFEFF' + [headers.join(','), ...rows].join('\r\n')
+}
+
+/**
+ * Export Price & Discount Master CSV for Superadmin
+ * Columns: Product ID, SKU, Name, MRP, Price, Discount %, Stock, Category, Status
+ */
+export function exportPriceDiscountMasterCSV(
+  products: Product[],
+  categoryMap?: Record<string, string>,
+  filename?: string
+): void {
+  const csvContent = buildPriceDiscountMasterCSVContent(products, categoryMap)
+  if (typeof document === 'undefined') return
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download =
+    filename || `VaishnavaMart_Price_Discount_Master_${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * Build CSV string for Pricing Update Template
+ */
+export function buildPricingTemplateCSVContent(): string {
+  const headers = [
+    'Product ID',
+    'SKU',
+    'Name',
+    'MRP',
+    'Price',
+    'Discount %',
+    'Stock',
+    'Category',
+    'Status',
+  ]
+
+  const sampleRows = [
+    [
+      'rk-mas-01',
+      'VM-MAS-SHAHI-100G',
+      'Ras Kan Pure Shahi Paneer Masala (100g)',
+      '249',
+      '199',
+      '20',
+      '85',
+      'Blend Masala & Seasoning',
+      'active',
+    ],
+    [
+      'rk-kha-01',
+      'VM-KHA-METHI-200G',
+      'Handmade Methi Khakhra (Whole Wheat)',
+      '180',
+      '',
+      '15',
+      '120',
+      'Khakhra & Snacks',
+      'active',
+    ],
+    [
+      '',
+      'VM-TUR-ORG-250G',
+      'Pure Lakadong Turmeric Powder (High Curcumin 250g)',
+      '220',
+      '180',
+      '18',
+      '75',
+      'Single Spices & Herbs',
+      'active',
+    ],
+  ]
+
+  const rows = sampleRows.map((row) =>
+    row
+      .map((val) => {
+        const str = String(val ?? '')
+        if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+          return `"${str.replace(/"/g, '""')}"`
+        }
+        return `"${str}"`
+      })
+      .join(',')
+  )
+
+  return '\uFEFF' + [headers.join(','), ...rows].join('\r\n')
+}
+
+/**
+ * Download a standard Pricing Update CSV Template
+ */
+export function downloadPricingTemplateCSV(filename?: string): void {
+  const csvContent = buildPricingTemplateCSVContent()
+  if (typeof document === 'undefined') return
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename || 'VaishnavaMart_Pricing_Update_Template.csv'
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)

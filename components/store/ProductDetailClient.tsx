@@ -50,9 +50,13 @@ export const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
   const displayUnit = activePack ? activePack.unit : product.unit
   const activeProductId = activePack?.productId || product.id
 
-  const discountPercent = displayMrp > displayPrice
-    ? Math.round(((displayMrp - displayPrice) / displayMrp) * 100)
-    : 0
+  const discountPercent = activePack
+    ? (activePack.discountPercent !== undefined
+        ? activePack.discountPercent
+        : (displayMrp > displayPrice && displayMrp > 0 ? Math.round(((displayMrp - displayPrice) / displayMrp) * 100) : 0))
+    : (product.discountPercent !== undefined
+        ? product.discountPercent
+        : (displayMrp > displayPrice && displayMrp > 0 ? Math.round(((displayMrp - displayPrice) / displayMrp) * 100) : 0))
 
   const handleAddToCart = async () => {
     await addToCart(activeProductId, quantity)
@@ -199,9 +203,11 @@ export const ProductDetailClient: React.FC<ProductDetailClientProps> = ({
                     <span className="font-sans text-base text-taupe line-through">
                       MRP ₹{displayMrp}
                     </span>
-                    <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-clay text-ivory uppercase tracking-wider shadow-sm">
-                      {discountPercent}% OFF
-                    </span>
+                    {discountPercent > 0 && (
+                      <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-clay text-ivory uppercase tracking-wider shadow-sm">
+                        {discountPercent}% OFF
+                      </span>
+                    )}
                   </>
                 )}
               </div>

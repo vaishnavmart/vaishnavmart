@@ -587,7 +587,7 @@ export default function AdminOrderDetailPage() {
               </div>
               {order.discount > 0 && (
                 <div className="flex justify-between text-clay">
-                  <span>Discount:</span>
+                  <span>Discount {order.couponCode ? `(${order.couponCode})` : ''}:</span>
                   <span className="font-mono">-₹{order.discount}</span>
                 </div>
               )}

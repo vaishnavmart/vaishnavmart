@@ -62,6 +62,7 @@ function AddProductWizardContent() {
   // Price & Stock
   const [mrp, setMrp] = useState(299)
   const [price, setPrice] = useState(249)
+  const [discountPercent, setDiscountPercent] = useState(17)
   const [stock, setStock] = useState(50)
   const [lowStockThreshold, setLowStockThreshold] = useState(10)
   const [sku, setSku] = useState('VM-MAS-NEW')
@@ -124,6 +125,13 @@ function AddProductWizardContent() {
           }
           setMrp(prod.mrp)
           setPrice(prod.price)
+          if (prod.discountPercent !== undefined) {
+            setDiscountPercent(prod.discountPercent)
+          } else if (prod.mrp > 0 && prod.mrp >= prod.price) {
+            setDiscountPercent(Math.round(((prod.mrp - prod.price) / prod.mrp) * 100))
+          } else {
+            setDiscountPercent(0)
+          }
           setStock(prod.stock)
           setLowStockThreshold(prod.lowStockThreshold || 10)
           setSku(cloneFromId && prod.sku ? `${prod.sku}-CPY` : prod.sku || 'VM-MAS-NEW')
@@ -168,6 +176,41 @@ function AddProductWizardContent() {
     }
   }
 
+  // Dynamic pricing & discount handlers
+  const handleMrpChange = (val: number) => {
+    const newMrp = Math.max(0, val)
+    setMrp(newMrp)
+    if (newMrp > 0) {
+      if (discountPercent > 0) {
+        const newPrice = Math.max(0, Math.round(newMrp * (1 - discountPercent / 100)))
+        setPrice(newPrice)
+      } else if (price > 0) {
+        const disc = price > newMrp ? 0 : Math.max(0, Math.round(((newMrp - price) / newMrp) * 100))
+        setDiscountPercent(disc)
+      }
+    }
+  }
+
+  const handlePriceChange = (val: number) => {
+    const newPrice = Math.max(0, val)
+    setPrice(newPrice)
+    if (mrp > 0) {
+      const disc = newPrice > mrp ? 0 : Math.max(0, Math.round(((mrp - newPrice) / mrp) * 100))
+      setDiscountPercent(disc)
+    } else {
+      setDiscountPercent(0)
+    }
+  }
+
+  const handleDiscountChange = (val: number) => {
+    const clampedDisc = Math.min(100, Math.max(0, val))
+    setDiscountPercent(clampedDisc)
+    if (mrp > 0) {
+      const newPrice = Math.max(0, Math.round(mrp * (1 - clampedDisc / 100)))
+      setPrice(newPrice)
+    }
+  }
+
   // Word count check
   const wordCount = description.trim() ? description.trim().split(/\s+/).length : 0
 
@@ -208,6 +251,7 @@ function AddProductWizardContent() {
         mainImage: images[0],
         mrp: Number(mrp),
         price: Number(price),
+        discountPercent: Number(discountPercent),
         stock: Number(stock),
         lowStockThreshold: Number(lowStockThreshold),
         sku,
@@ -416,30 +460,79 @@ function AddProductWizardContent() {
         <div className="bg-ivory p-6 sm:p-8 rounded-3xl border border-sand space-y-4">
           <h2 className="font-serif text-xl text-cocoa font-medium">Pricing, Weight & Inventory</h2>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-wider text-taupe block mb-1">
-                Selling Price (₹) *
-              </label>
-              <input
-                type="number"
-                value={price}
-                onChange={(e) => setPrice(Number(e.target.value))}
-                className="w-full p-3 bg-porcelain border border-sand rounded-xl text-sm font-bold"
-              />
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="text-xs font-semibold uppercase tracking-wider text-taupe block mb-1">
                 MRP (₹)
               </label>
               <input
                 type="number"
+                min="0"
                 value={mrp}
-                onChange={(e) => setMrp(Number(e.target.value))}
-                className="w-full p-3 bg-porcelain border border-sand rounded-xl text-sm"
+                onChange={(e) => handleMrpChange(Number(e.target.value))}
+                className="w-full p-3 bg-porcelain border border-sand rounded-xl text-sm font-semibold"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-taupe block mb-1">
+                Discount (%)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={discountPercent}
+                  onChange={(e) => handleDiscountChange(Number(e.target.value))}
+                  className="w-full p-3 bg-porcelain border border-sand rounded-xl text-sm font-semibold text-botanical pr-8"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-taupe pointer-events-none">
+                  %
+                </span>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-taupe block mb-1">
+                Selling Price (₹) *
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={price}
+                onChange={(e) => handlePriceChange(Number(e.target.value))}
+                className="w-full p-3 bg-porcelain border border-sand rounded-xl text-sm font-bold text-burgundy"
               />
             </div>
           </div>
+
+          {/* Pricing Status & Validation Indicators */}
+          {price > mrp && (
+            <div className="p-3 bg-clay/15 border border-clay/30 rounded-xl text-clay text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>
+                <strong>Warning:</strong> Selling Price (₹{price}) exceeds MRP (₹{mrp}). Recommended to adjust Selling Price or MRP so price does not exceed maximum retail price.
+              </span>
+            </div>
+          )}
+          {mrp > price && discountPercent > 0 && (
+            <div className="p-3 bg-botanical/10 border border-botanical/25 rounded-xl text-botanical text-xs flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-botanical" />
+                Customer saves <strong>₹{mrp - price}</strong> ({discountPercent}% OFF MRP).
+              </span>
+              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-botanical/20">
+                Discount Active
+              </span>
+            </div>
+          )}
+          {mrp > 0 && price === mrp && (
+            <div className="p-3 bg-sand/30 border border-sand rounded-xl text-taupe text-xs flex items-center justify-between">
+              <span>Standard Pricing: 0% Discount (Selling Price equals MRP).</span>
+              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-sand/60 text-cocoa">
+                No Discount
+              </span>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <div>
@@ -709,7 +802,14 @@ function AddProductWizardContent() {
             <div>
               <span className="text-[10px] uppercase font-bold text-copper tracking-wider">{sku}</span>
               <h3 className="font-serif text-xl text-cocoa font-medium">{name || 'Untitled Product'}</h3>
-              <p className="font-bold text-base text-burgundy mt-1">₹{price} (MRP ₹{mrp})</p>
+              <p className="font-bold text-base text-burgundy mt-1">
+                ₹{price} (MRP ₹{mrp})
+                {discountPercent > 0 && (
+                  <span className="ml-2 text-xs font-bold text-botanical uppercase bg-botanical/15 px-2 py-0.5 rounded">
+                    {discountPercent}% OFF
+                  </span>
+                )}
+              </p>
               <p className="text-xs text-taupe">{weight} {unit} • Stock: {stock}</p>
             </div>
           </div>

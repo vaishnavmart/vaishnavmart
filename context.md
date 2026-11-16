@@ -168,6 +168,38 @@ Built a unified, type-safe REST API layer:
 - **Resolution:**
   - Added `loading` state (`useState(true)`) and animated loading skeletons with spinner icons to [`app/admin/inventory/page.tsx`](app/admin/inventory/page.tsx) and [`app/admin/audit-log/page.tsx`](app/admin/audit-log/page.tsx).
 
+### BUG-13: Coupon Code Failure Across All User Accounts (CRITICAL - Checkout Broken)
+- **Symptom:** Customers and Superadmins entering valid coupons created in `/admin/coupons` (e.g. `KARTIKMASS10`, `SATVIK100`) were consistently told "Invalid coupon code. Try 'SATVIK50'". Even if entered, discounts vanished during checkout, Razorpay charged the undiscounted total, and orders were created with ₹0 discount.
+- **Root Cause:**
+  1. *Hardcoded Frontend Check:* In `app/cart/page.tsx`, `handleApplyCoupon` evaluated coupons against a static in-file string check (`=== 'SATVIK50' || === 'EKADASHI'`), completely ignoring `/api/coupons/validate` and Cloud Firestore.
+  2. *Evaporated State Between Cart & Checkout:* Applied discount lived solely in cart component `useState` and was never stored in `CartContext`. Navigating from `/cart` to `/checkout` erased the coupon.
+  3. *Missing Checkout Promo Input:* Devotees going straight to `/checkout` had zero promo input mechanism.
+  4. *Server Order Creation Bypass:* `app/checkout/page.tsx` hardcoded `discount: 0` and sent the full undiscounted amount to the Razorpay payment gateway and `/api/orders`.
+  5. *Unawaited Serverless Promises:* `CouponRepository.incrementUsage` and `saveCoupon` lacked `await` in serverless route handlers, causing Vercel to terminate background execution before usage counts were written to Firestore.
+- **Resolution:**
+  - Connected `app/cart/page.tsx` and `app/checkout/page.tsx` to `CartContext.applyCoupon`, verifying codes against `/api/coupons/validate` and Cloud Firestore.
+  - Implemented persistent coupon state in `CartContext` with `localStorage` fallback (`vm_cart_coupon`) and reactive discount recalculation upon cart line-item changes.
+  - Added full promotional code redemption UI and badge removal in Checkout Stage 3.
+  - Added atomic Firestore increment (`increment(1)`) in `FirestoreCouponService.incrementUsage` and properly `await`ed usage updates in `/api/orders`.
+  - Passed discounted `finalTotal` to Razorpay gateway creation, order confirmation snapshot, PDF invoices, and admin order views.
+
+### BUG-14: Missing Product-Level Discount Percentage Configuration (HIGH)
+- **Symptom:** Superadmin could only configure MRP and Selling Price manually, without configurable discount percentages per product, causing friction in managing promotional pricing and inconsistencies on storefront discount badges.
+- **Root Cause:** `Product` model in `types/index.ts` lacked a top-level `discountPercent?: number` field. Product creation wizard and inventory views lacked discount percentage controls with bidirectional price calculation.
+- **Resolution:**
+  - Extended `Product` type with `discountPercent?: number` in [`types/index.ts`](types/index.ts).
+  - Built bidirectional pricing engine in [`app/admin/add/product/page.tsx`](app/admin/add/product/page.tsx): editing Discount % recalculates Price (`Math.round(mrp * (1 - discount/100))`), while editing Price updates Discount % (`Math.round(((mrp - price)/mrp)*100)`), with active savings feedback and clamp validation.
+  - Added inline MRP, Discount %, and Price inputs to each product row in [`app/admin/inventory/page.tsx`](app/admin/inventory/page.tsx) with instant Firestore synchronization and audit logging.
+  - Standardized discount badges and savings tags across `ProductCard`, `ProductDetailClient`, `CartDrawer`, `CartPage`, and `CheckoutPage`.
+
+### BUG-15: Missing CSV-Based Price & Discount Bulk Editing (HIGH)
+- **Symptom:** Superadmin had no capability in Inventory to export a price list, edit selling prices, MRPs, or discount percentages in bulk via spreadsheet (Excel/Sheets), or re-import to update catalog prices and onboard new items.
+- **Root Cause:** Inventory only had a wholesale Mandi procurement sheet export. No bulk price update repository method or CSV modal existed in `/admin/inventory`.
+- **Resolution:**
+  - Implemented `buildPriceDiscountMasterCSVContent` and `buildPricingTemplateCSVContent` in [`lib/utils/invoiceGenerator.ts`](lib/utils/invoiceGenerator.ts) with RFC 4180 quotation and UTF-8 BOM encoding.
+  - Added `ProductRepository.bulkUpdatePricing` in [`lib/data/repositories.ts`](lib/data/repositories.ts), matching products by ID (Priority 1), SKU (Priority 2), or creating new products (unmatched rows), while preserving Firestore document IDs, image arrays, and SEO metadata.
+  - Built **Price & Stock CSV Modal** in [`app/admin/inventory/page.tsx`](app/admin/inventory/page.tsx) featuring one-click Master CSV export, template download, live spreadsheet upload, real-time diff preview table (Updates vs. New Items vs. Errors), and one-click commit to Cloud Firestore with automated Superadmin audit trail logs.
+
 ---
 
 ## 4. Change Log (Additions and Removals to Codebase)

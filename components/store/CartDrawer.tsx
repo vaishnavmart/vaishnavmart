@@ -156,6 +156,21 @@ export const CartDrawer: React.FC = () => {
 
                     <div className="text-right">
                       <span className="font-semibold text-sm text-burgundy">₹{product.price * quantity}</span>
+                      {product.mrp > product.price && (
+                        <div className="text-[10px] text-taupe flex items-center justify-end gap-1">
+                          <span className="line-through">₹{product.mrp * quantity}</span>
+                          {(() => {
+                            const disc = product.discountPercent !== undefined
+                              ? product.discountPercent
+                              : (product.mrp > 0 ? Math.round(((product.mrp - product.price) / product.mrp) * 100) : 0)
+                            return disc > 0 ? (
+                              <span className="text-botanical font-bold">
+                                ({disc}% OFF)
+                              </span>
+                            ) : null
+                          })()}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

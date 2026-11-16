@@ -40,6 +40,7 @@ export interface Product {
   mainImage: string
   mrp: number
   price: number
+  discountPercent?: number
   stock: number
   lowStockThreshold: number
   sku?: string
@@ -163,6 +164,7 @@ export interface Order {
   items: OrderItemSnapshot[]
   subtotal: number
   discount: number
+  couponCode?: string
   shipping: number
   finalTotal: number
   paymentState: PaymentState

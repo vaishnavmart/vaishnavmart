@@ -10,6 +10,7 @@ import {
   where,
   orderBy,
   limit,
+  increment,
 } from 'firebase/firestore'
 import { db, auth } from './config'
 import { signInWithEmailAndPassword } from 'firebase/auth'
@@ -430,6 +431,19 @@ export const FirestoreCouponService = {
       await deleteDoc(ref)
     } catch (err) {
       console.error('[FirestoreService] coupon remove error:', err)
+    }
+  },
+
+  async incrementUsage(id: string): Promise<void> {
+    try {
+      await ensureAdminAuth()
+      const ref = doc(db, 'coupons', id)
+      await updateDoc(ref, {
+        timesUsed: increment(1),
+        updatedAt: new Date().toISOString(),
+      })
+    } catch (err) {
+      console.error('[FirestoreService] coupon incrementUsage error:', err)
     }
   },
 }

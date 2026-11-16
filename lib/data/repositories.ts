@@ -373,12 +373,17 @@ export const ProductRepository = {
   async bulkImportProducts(products: Product[]): Promise<number> {
     syncFromStorage()
     let count = 0
+    const productsToPersist: Product[] = []
     products.forEach((newProd) => {
-      const idx = mockProductsStore.findIndex((p) => p.id === newProd.id || (p.sku && newProd.sku && p.sku === newProd.sku))
+      const idx = mockProductsStore.findIndex((p) => p.id === newProd.id || (p.sku && newProd.sku && p.sku.toLowerCase() === newProd.sku.toLowerCase()))
       if (idx >= 0) {
-        mockProductsStore[idx] = { ...mockProductsStore[idx], ...newProd, updatedAt: new Date().toISOString() }
+        const merged: Product = { ...mockProductsStore[idx], ...newProd, id: mockProductsStore[idx].id, updatedAt: new Date().toISOString() }
+        mockProductsStore[idx] = merged
+        productsToPersist.push(merged)
       } else {
-        mockProductsStore.unshift({ ...newProd, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+        const added: Product = { ...newProd, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+        mockProductsStore.unshift(added)
+        productsToPersist.push(added)
       }
       count++
     })
@@ -386,7 +391,7 @@ export const ProductRepository = {
 
     // Sync to Firestore in parallel batches
     try {
-      await FirestoreProductService.seedAll(products)
+      await FirestoreProductService.seedAll(productsToPersist)
     } catch (err) {
       console.warn('Firebase bulkImportProducts notice:', err)
     }
@@ -398,6 +403,71 @@ export const ProductRepository = {
     )
 
     return count
+  },
+
+  async bulkUpdatePricing(
+    items: Product[],
+    auditSummary?: string
+  ): Promise<{ updatedCount: number; createdCount: number; savedProducts: Product[] }> {
+    syncFromStorage()
+    let updatedCount = 0
+    let createdCount = 0
+    const savedProducts: Product[] = []
+
+    items.forEach((item) => {
+      // Match existing product by ID or SKU
+      const idx = mockProductsStore.findIndex(
+        (p) =>
+          (item.id && p.id.toLowerCase() === item.id.toLowerCase()) ||
+          (item.sku && p.sku && p.sku.toLowerCase() === item.sku.toLowerCase())
+      )
+
+      if (idx >= 0) {
+        const existing = mockProductsStore[idx]
+        const merged: Product = {
+          ...existing,
+          ...item,
+          id: existing.id, // Preserve permanent Firestore Doc ID
+          slug: existing.slug || item.slug,
+          images: item.images && item.images.length === 4 ? item.images : existing.images,
+          mainImage: item.mainImage || existing.mainImage,
+          features: item.features && item.features.length > 0 ? item.features : existing.features,
+          seo: existing.seo || item.seo,
+          createdAt: existing.createdAt,
+          updatedAt: new Date().toISOString(),
+        }
+        mockProductsStore[idx] = merged
+        savedProducts.push(merged)
+        updatedCount++
+      } else {
+        const newProd: Product = {
+          ...item,
+          createdAt: item.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+        mockProductsStore.unshift(newProd)
+        savedProducts.push(newProd)
+        createdCount++
+      }
+    })
+
+    syncToStorage()
+
+    // Sync persisted products to Cloud Firestore
+    if (isFirebaseEnabled) {
+      try {
+        await FirestoreProductService.seedAll(savedProducts)
+      } catch (err) {
+        console.warn('[ProductRepository] Firestore bulkUpdatePricing seedAll notice:', err)
+      }
+    }
+
+    const logText =
+      auditSummary ||
+      `CSV Price & Catalog Sync: ${updatedCount} products updated, ${createdCount} new products onboarded.`
+    await AuditLogRepository.addLog('Price & Catalog CSV Update', logText, 'Superadmin')
+
+    return { updatedCount, createdCount, savedProducts }
   },
 
   async duplicateProduct(id: string): Promise<Product | null> {
@@ -1186,6 +1256,27 @@ export const CouponRepository = {
   async getCouponByCode(code: string): Promise<Coupon | null> {
     if (!code) return null
     const cleanCode = code.trim().toUpperCase()
+
+    // Query Firestore directly for live verified coupons
+    if (isFirebaseEnabled) {
+      try {
+        const liveCoupon = await FirestoreCouponService.getByCode(cleanCode)
+        if (liveCoupon) {
+          syncFromStorage()
+          const idx = mockCouponsStore.findIndex((c) => c.id === liveCoupon.id)
+          if (idx >= 0) {
+            mockCouponsStore[idx] = liveCoupon
+          } else {
+            mockCouponsStore.push(liveCoupon)
+          }
+          syncToStorage()
+          return liveCoupon
+        }
+      } catch (err) {
+        console.warn('Firestore getCouponByCode notice:', err)
+      }
+    }
+
     const coupons = await this.getAllCoupons()
     return coupons.find((c) => c.code.toUpperCase() === cleanCode) || null
   },
@@ -1217,7 +1308,11 @@ export const CouponRepository = {
     syncToStorage()
 
     if (isFirebaseEnabled) {
-      FirestoreCouponService.save(clean).catch(() => {})
+      try {
+        await FirestoreCouponService.save(clean)
+      } catch (err) {
+        console.error('[CouponRepository] saveCoupon Firestore error:', err)
+      }
     }
 
     return clean
@@ -1234,7 +1329,11 @@ export const CouponRepository = {
     }
 
     if (isFirebaseEnabled) {
-      FirestoreCouponService.remove(id).catch(() => {})
+      try {
+        await FirestoreCouponService.remove(id)
+      } catch (err) {
+        console.error('[CouponRepository] deleteCoupon Firestore error:', err)
+      }
     }
   },
 
@@ -1295,15 +1394,26 @@ export const CouponRepository = {
   },
 
   async incrementUsage(code: string): Promise<void> {
-    syncFromStorage()
+    if (!code) return
     const cleanCode = code.trim().toUpperCase()
-    const coupon = mockCouponsStore.find((c) => c.code.toUpperCase() === cleanCode)
+    const coupon = await this.getCouponByCode(cleanCode)
     if (coupon) {
+      syncFromStorage()
       coupon.timesUsed = (coupon.timesUsed || 0) + 1
       coupon.updatedAt = new Date().toISOString()
+      const idx = mockCouponsStore.findIndex((c) => c.id === coupon.id)
+      if (idx >= 0) {
+        mockCouponsStore[idx] = coupon
+      } else {
+        mockCouponsStore.push(coupon)
+      }
       syncToStorage()
       if (isFirebaseEnabled) {
-        FirestoreCouponService.save(coupon).catch(() => {})
+        try {
+          await FirestoreCouponService.incrementUsage(coupon.id)
+        } catch (err) {
+          console.error('[CouponRepository] incrementUsage Firestore error:', err)
+        }
       }
     }
   },

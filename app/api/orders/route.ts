@@ -47,18 +47,22 @@ export async function POST(request: Request) {
 
     cleanOrder.subtotal = calculatedSubtotal
 
-    // Canonical shipping rule: orders >= 499 get free shipping, otherwise Rs. 60
-    const calculatedShipping = calculatedSubtotal >= 499 ? 0 : 60
+    // Canonical shipping rule: orders >= 499 get free shipping, otherwise Rs. 50
+    const calculatedShipping = calculatedSubtotal >= 499 ? 0 : 50
     cleanOrder.shipping = calculatedShipping
 
     // Server-side Coupon & Discount Verification
     let verifiedDiscount = 0
     const suppliedCouponCode = rawOrder.couponCode || (cleanOrder as any).couponCode
     if (suppliedCouponCode) {
-      const couponCheck = await CouponRepository.validateCoupon(suppliedCouponCode, calculatedSubtotal)
+      const cleanCouponCode = String(suppliedCouponCode).trim().toUpperCase()
+      const couponCheck = await CouponRepository.validateCoupon(cleanCouponCode, calculatedSubtotal)
       if (couponCheck.valid) {
         verifiedDiscount = couponCheck.discount
-        await CouponRepository.incrementUsage(suppliedCouponCode)
+        cleanOrder.couponCode = cleanCouponCode
+        await CouponRepository.incrementUsage(cleanCouponCode)
+      } else {
+        delete (cleanOrder as any).couponCode
       }
     }
     cleanOrder.discount = verifiedDiscount

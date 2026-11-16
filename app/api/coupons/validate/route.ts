@@ -31,6 +31,8 @@ export async function POST(req: NextRequest) {
         code: result.coupon?.code,
         discountType: result.coupon?.discountType,
         discountValue: result.coupon?.discountValue,
+        minOrderAmount: result.coupon?.minOrderAmount,
+        maxDiscountAmount: result.coupon?.maxDiscountAmount,
         description: result.coupon?.description,
       },
     })

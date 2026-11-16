@@ -11,12 +11,26 @@ export interface CartItemDetailed {
   quantity: number
 }
 
+export interface AppliedCouponInfo {
+  code: string
+  discountType: 'percentage' | 'flat'
+  discountValue: number
+  minOrderAmount?: number
+  maxDiscountAmount?: number
+  description?: string
+}
+
 interface CartContextType {
   items: CartItemDetailed[]
   itemCount: number
   subtotal: number
   shippingCost: number
   total: number
+  discount: number
+  finalTotal: number
+  appliedCoupon: AppliedCouponInfo | null
+  applyCoupon: (code: string) => Promise<{ valid: boolean; discount: number; message: string }>
+  removeCoupon: () => void
   isCartDrawerOpen: boolean
   setIsCartDrawerOpen: (open: boolean) => void
   addToCart: (productId: string, quantity?: number) => Promise<void>
@@ -33,15 +47,20 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { user } = useAuth()
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [detailedItems, setDetailedItems] = useState<CartItemDetailed[]>([])
+  const [appliedCoupon, setAppliedCoupon] = useState<AppliedCouponInfo | null>(null)
   const [isCartDrawerOpen, setIsCartDrawerOpen] = useState(false)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
-  // 1. Initial Load: Guest cart from localStorage
+  // 1. Initial Load: Guest cart and applied coupon from localStorage
   useEffect(() => {
     try {
       const savedGuestCart = localStorage.getItem('vm_guest_cart')
       if (savedGuestCart) {
         setCartItems(JSON.parse(savedGuestCart))
+      }
+      const savedCoupon = localStorage.getItem('vm_cart_coupon')
+      if (savedCoupon) {
+        setAppliedCoupon(JSON.parse(savedCoupon))
       }
     } catch {
       // ignore
@@ -162,6 +181,12 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearCart = async () => {
     setCartItems([])
+    setAppliedCoupon(null)
+    try {
+      localStorage.removeItem('vm_cart_coupon')
+    } catch {
+      // ignore
+    }
     if (user) {
       await CartRepository.clearCart(user.uid)
     } else {
@@ -169,10 +194,72 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
+  const applyCoupon = async (code: string): Promise<{ valid: boolean; discount: number; message: string }> => {
+    if (!code || !code.trim()) {
+      return { valid: false, discount: 0, message: 'Please enter a coupon code.' }
+    }
+    const cleanCode = code.trim().toUpperCase()
+    try {
+      const res = await fetch('/api/coupons/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: cleanCode, subtotal }),
+      })
+      const data = await res.json()
+      if (res.ok && data.valid) {
+        const couponInfo: AppliedCouponInfo = {
+          code: data.coupon?.code || cleanCode,
+          discountType: data.coupon?.discountType || 'flat',
+          discountValue: Number(data.coupon?.discountValue) || data.discount,
+          minOrderAmount: data.coupon?.minOrderAmount ? Number(data.coupon.minOrderAmount) : undefined,
+          maxDiscountAmount: data.coupon?.maxDiscountAmount ? Number(data.coupon.maxDiscountAmount) : undefined,
+          description: data.coupon?.description || '',
+        }
+        setAppliedCoupon(couponInfo)
+        try {
+          localStorage.setItem('vm_cart_coupon', JSON.stringify(couponInfo))
+        } catch {
+          // ignore
+        }
+        showToast(`Coupon "${cleanCode}" applied! Saved ₹${data.discount}`)
+        return { valid: true, discount: data.discount, message: data.message }
+      } else {
+        return { valid: false, discount: 0, message: data.message || 'Invalid coupon code.' }
+      }
+    } catch (err: any) {
+      return { valid: false, discount: 0, message: err?.message || 'Error validating coupon.' }
+    }
+  }
+
+  const removeCoupon = () => {
+    setAppliedCoupon(null)
+    try {
+      localStorage.removeItem('vm_cart_coupon')
+    } catch {
+      // ignore
+    }
+    showToast('Coupon removed')
+  }
+
   const itemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0)
   const subtotal = detailedItems.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
-  const shippingCost = subtotal > 499 || subtotal === 0 ? 0 : 50
+  const shippingCost = subtotal >= 499 || subtotal === 0 ? 0 : 50
+
+  // Calculate dynamic coupon discount against current subtotal
+  let discount = 0
+  if (appliedCoupon && subtotal > 0) {
+    if (!appliedCoupon.minOrderAmount || subtotal >= appliedCoupon.minOrderAmount) {
+      if (appliedCoupon.discountType === 'percentage') {
+        const raw = Math.round((subtotal * appliedCoupon.discountValue) / 100)
+        discount = appliedCoupon.maxDiscountAmount ? Math.min(appliedCoupon.maxDiscountAmount, raw) : raw
+      } else {
+        discount = Math.min(subtotal, appliedCoupon.discountValue)
+      }
+    }
+  }
+
   const total = subtotal + shippingCost
+  const finalTotal = Math.max(0, subtotal + shippingCost - discount)
 
   return (
     <CartContext.Provider
@@ -182,6 +269,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         subtotal,
         shippingCost,
         total,
+        discount,
+        finalTotal,
+        appliedCoupon,
+        applyCoupon,
+        removeCoupon,
         isCartDrawerOpen,
         setIsCartDrawerOpen,
         addToCart,

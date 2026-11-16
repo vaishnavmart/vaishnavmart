@@ -27,9 +27,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priorityImage
   const activePrice = activePack ? activePack.price : product.price
   const activeMrp = activePack ? activePack.mrp : product.mrp
   const activeProductId = activePack?.productId || product.id
-  const activeDiscount = activeMrp > activePrice
-    ? Math.round(((activeMrp - activePrice) / activeMrp) * 100)
-    : 0
+  const activeDiscount = activePack
+    ? (activePack.discountPercent !== undefined
+        ? activePack.discountPercent
+        : (activeMrp > activePrice && activeMrp > 0 ? Math.round(((activeMrp - activePrice) / activeMrp) * 100) : 0))
+    : (product.discountPercent !== undefined
+        ? product.discountPercent
+        : (activeMrp > activePrice && activeMrp > 0 ? Math.round(((activeMrp - activePrice) / activeMrp) * 100) : 0))
 
   const cartItem = items.find((i) => i.productId === activeProductId)
   const quantity = cartItem?.quantity || 0
@@ -72,9 +76,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priorityImage
 
         {/* Feature & Discount Badges */}
         <div className="absolute top-2.5 left-2.5 flex flex-col gap-1 z-10 pointer-events-none">
-          {product.mrp > product.price && (
+          {activeDiscount > 0 && (
             <span className="bg-clay text-ivory text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-md shadow-md tracking-wider uppercase">
-              {Math.round(((product.mrp - product.price) / product.mrp) * 100)}% OFF
+              {activeDiscount}% OFF
             </span>
           )}
           {product.isCombo && (

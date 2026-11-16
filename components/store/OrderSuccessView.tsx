@@ -312,6 +312,12 @@ export function OrderSuccessView({ initialOrder, orderId }: Props) {
                 <span>Subtotal</span>
                 <span>₹{order.subtotal}</span>
               </div>
+              {order.discount > 0 && (
+                <div className="flex justify-between text-botanical font-medium">
+                  <span>Promo Discount {order.couponCode ? `(${order.couponCode})` : ''}</span>
+                  <span>-₹{order.discount}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span>Delivery</span>
                 <span>{order.shipping === 0 ? 'Free' : `₹${order.shipping}`}</span>
