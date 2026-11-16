@@ -17,6 +17,7 @@ export default function AdminInventoryPage() {
   const [expiryInputs, setExpiryInputs] = useState<Record<string, string>>({})
   const [updatedMsg, setUpdatedMsg] = useState('')
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
@@ -38,6 +39,7 @@ export default function AdminInventoryPage() {
       setThresholdInputs(thresholds)
       setBatchInputs(batches)
       setExpiryInputs(expiries)
+      setLoading(false)
     }
     load()
   }, [])
@@ -156,8 +158,20 @@ export default function AdminInventoryPage() {
         </div>
       )}
 
-      <div className="bg-ivory rounded-3xl border border-sand overflow-hidden shadow-xs">
-        <div className="divide-y divide-sand">
+      {loading ? (
+        <div className="p-16 text-center text-xs text-taupe flex flex-col items-center justify-center gap-3 bg-ivory rounded-3xl border border-sand shadow-xs">
+          <Loader2 className="w-6 h-6 animate-spin text-burgundy" />
+          <span className="font-medium text-cocoa">Synchronizing live inventory from Cloud Firestore...</span>
+        </div>
+      ) : displayedProducts.length === 0 ? (
+        <div className="text-center py-20 bg-ivory rounded-3xl border border-sand p-8 space-y-3">
+          <Boxes className="w-10 h-10 mx-auto text-taupe opacity-40" />
+          <p className="font-serif text-xl text-cocoa">No products matching this filter</p>
+          <p className="text-xs text-taupe">Try switching to &apos;All Items&apos; to view the complete catalog.</p>
+        </div>
+      ) : (
+        <div className="bg-ivory rounded-3xl border border-sand overflow-hidden shadow-xs">
+          <div className="divide-y divide-sand">
           {displayedProducts.map((p) => {
             const isLow = p.stock <= p.lowStockThreshold && p.stock > 0
             const isOut = p.stock <= 0
@@ -292,6 +306,7 @@ export default function AdminInventoryPage() {
           })}
         </div>
       </div>
+      )}
     </div>
   )
 }

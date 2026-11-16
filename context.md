@@ -132,6 +132,42 @@ Built a unified, type-safe REST API layer:
 - **Root Cause:** `ProductRepository.getAllProducts()` populated a Map with mock objects first, and shallow-merged Firestore documents on top. Deletions in Firestore were not reflected because the mock object still existed.
 - **Resolution:** Overhauled Map reconciliation in [`lib/data/repositories.ts`](lib/data/repositories.ts) so live Firestore documents overwrite mock templates directly (`productMap.set(lp.id, lp)`).
 
+### BUG-08: Missing Composite Indexes on Orders Collection (CRITICAL - Orders Blank on Filter)
+- **Symptom:** In `/admin/orders`, filtering orders by status (e.g. `new`, `confirmed`, `shipped`) or refreshing while a status filter was active caused the entire orders list to disappear, displaying "No orders matching this view" (empty screen).
+- **Root Cause:** In Cloud Firestore, querying `where('orderStatus', '==', status)` combined with `orderBy('createdAt', 'desc')` requires a composite index. Without it, the Firestore SDK threw `failed-precondition: The query requires an index. You can create it here: https://console.firebase.google.com/...`. The repository's `try/catch` block caught the error and returned `[]`, rendering an empty list.
+- **Resolution:**
+  - Added composite indexes for `orders` (`orderStatus` ASC + `createdAt` DESC, and `paymentState` ASC + `createdAt` DESC), `products` (`status` ASC + `createdAt` DESC), and `auditLogs` (`action` ASC + `timestamp` DESC) to [`firestore.indexes.json`](firestore.indexes.json).
+  - Deployed composite indexes directly to project `raskan-id` via `firebase deploy --only firestore:indexes`.
+  - Added in-memory fallback sorting and filtering in [`FirestoreOrderService.getAll()`](lib/firebase/firestoreService.ts) and [`OrderRepository.getOrders()`](lib/data/repositories.ts) to guarantee zero downtime even if an index is rebuilding.
+
+### BUG-09: Missing Admin Auth on Read Services (CRITICAL - Live Orders & Customers Vanishing on Refresh)
+- **Symptom:** After refreshing `/admin/orders` or `/admin/users`, live customer orders and patron accounts disappeared, and only the 4 baseline demo orders (`ord-1001` - `ord-1004`) were displayed.
+- **Root Cause:** `firestore.rules` enforces `isAdmin()` on all reads of the `/orders`, `/users`, and `/auditLogs` collections. Previously, `ensureAdminAuth()` was only invoked on *write* methods. When `/api/admin/orders` or `/api/admin/users` was called on the server, or when the client refreshed before Firebase Auth restored its state, `request.auth` was `null`. Firestore rejected the read with `PERMISSION_DENIED`, returning `[]` and falling back to the 4 hardcoded initial demo orders.
+- **Resolution:**
+  - Added `await ensureAdminAuth()` to all read services in [`lib/firebase/firestoreService.ts`](lib/firebase/firestoreService.ts): `FirestoreOrderService.getAll()`, `FirestoreOrderService.getById()`, `FirestoreUserService.getAll()`, `FirestoreUserService.getById()`, and `FirestoreAuditLogService.getAll()`.
+  - Updated `ensureAdminAuth()` with an explicit `ADMIN_EMAILS` whitelist check so that patron customer logins can never accidentally downgrade administrative reads.
+
+### BUG-10: Fragile Environment Check Gate (`NEXT_PUBLIC_DATA_MODE === 'firebase'`)
+- **Symptom:** If `NEXT_PUBLIC_DATA_MODE` was undefined (which occurs on fresh Vercel deployments and local clones without `.env.local`), all repository fetch methods skipped Firestore entirely and returned stale static mock arrays. In addition, `ProductRepository.getProductById` and `getProductBySlug` only checked Firestore if `!found`, meaning edited products that existed in `initialProducts` never fetched their latest changes from Firestore.
+- **Root Cause:** In [`lib/data/repositories.ts`](lib/data/repositories.ts), reads were guarded by `if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase')`. When undefined, `undefined === 'firebase'` evaluated to `false`.
+- **Resolution:**
+  - Defined `const isFirebaseEnabled = process.env.NEXT_PUBLIC_DATA_MODE !== 'mock'` at the top of [`lib/data/repositories.ts`](lib/data/repositories.ts), enabling Firestore by default unless offline mock mode is explicitly requested.
+  - Replaced all 12 occurrences of `NEXT_PUBLIC_DATA_MODE === 'firebase'` with `isFirebaseEnabled`.
+  - Updated `ProductRepository.getProductById` and `getProductBySlug` to query Firestore first when `isFirebaseEnabled`, update the in-memory store and localStorage, and return the live product.
+
+### BUG-11: Unpersisted Site Settings (`SettingsRepository` localStorage-Only)
+- **Symptom:** Official business settings (FSSAI license number, registered dispatch address, support helpline) updated in `/admin/settings` reverted back to placeholder defaults upon switching browsers, opening in incognito, or accessing from a different machine.
+- **Root Cause:** `SettingsRepository` in [`lib/data/repositories.ts`](lib/data/repositories.ts) only read and wrote to `localStorage` and `mockSettingsStore`. `FirestoreSettingsService` did not exist.
+- **Resolution:**
+  - Implemented `FirestoreSettingsService` in [`lib/firebase/firestoreService.ts`](lib/firebase/firestoreService.ts) targeting Firestore collection `settings/general`.
+  - Connected `SettingsRepository.getSettings()` and `updateSettings()` to `FirestoreSettingsService` with admin authentication and automated audit log recording.
+
+### BUG-12: Flash of Blank Content on Hydration in Admin Inventory & Audit Log (MEDIUM)
+- **Symptom:** On initial load or refresh of `/admin/inventory` and `/admin/audit-log`, the UI flashed an empty table or "All inventory levels healthy (0)" for 500-1500ms before products loaded.
+- **Root Cause:** Both pages initialized `useState([])` without a `loading` state, rendering the empty array immediately during SSR/client hydration.
+- **Resolution:**
+  - Added `loading` state (`useState(true)`) and animated loading skeletons with spinner icons to [`app/admin/inventory/page.tsx`](app/admin/inventory/page.tsx) and [`app/admin/audit-log/page.tsx`](app/admin/audit-log/page.tsx).
+
 ---
 
 ## 4. Change Log (Additions and Removals to Codebase)
@@ -151,34 +187,38 @@ Built a unified, type-safe REST API layer:
    - `app/admin/orders/[id]/page.tsx`: Detailed order management UI with line-item editor, courier logistics tracking, and refund triggers.
 3. **Core Utilities & Services:**
    - `lib/utils/invoiceGenerator.ts`: PDF generation engine for 4x6 thermal delivery stickers, A4 morning warehouse packing slips, FSSAI tax invoices, and Mandi procurement CSV spreadsheets.
-   - `ensureAdminAuth` in `lib/firebase/firestoreService.ts`: Dual-auth bridge guaranteeing active Firebase Auth before Firestore writes.
+   - `ensureAdminAuth` in `lib/firebase/firestoreService.ts`: Dual-auth bridge guaranteeing active Firebase Auth before Firestore reads and writes.
+   - `FirestoreSettingsService` in `lib/firebase/firestoreService.ts`: Cloud Firestore persistence for FSSAI, business coordinates, and announcement bars.
+4. **Database Composite Indexes:**
+   - Deployed composite indexes in `firestore.indexes.json` for `orders` (`orderStatus` + `createdAt`, `paymentState` + `createdAt`), `products` (`status` + `createdAt`), and `auditLogs` (`action` + `timestamp`).
 
 ### Modifications / Enhancements (~)
 1. **`firestore.rules`:**
    - Added rule definition for `/coupons/{couponId}` allowing public read and administrative write.
    - Verified least-privilege security across `products`, `categories`, `orders`, `users`, `carts`, `settings`, and `auditLogs`.
 2. **`lib/firebase/firestoreService.ts`:**
-   - Integrated `ensureAdminAuth()` into all write methods (`save`, `remove`, `seedAll`) across products, categories, coupons, orders, pages, and audit logs.
+   - Integrated `ensureAdminAuth()` into ALL read and write methods across products, categories, coupons, orders, users, settings, pages, and audit logs.
    - Replaced silent fallback warnings with detailed error reporting.
 3. **`lib/data/repositories.ts`:**
-   - Updated `ProductRepository` and `CategoryRepository` to make live Firestore data authoritative over mock defaults.
-   - Converted all save, delete, and duplicate calls to asynchronously `await` Firestore writes before returning.
+   - Switched to `isFirebaseEnabled = process.env.NEXT_PUBLIC_DATA_MODE !== 'mock'` enabling live Firestore persistence by default.
+   - Updated `ProductRepository`, `CategoryRepository`, `OrderRepository`, `UserRepository`, `SettingsRepository`, and `AuditLogRepository` to query Firestore first and keep in-memory/localStorage stores authoritative.
 4. **`app/owner-login/page.tsx`:**
    - Connected `signInWithEmailAndPassword` to the client-side login form to keep Firebase Auth client SDK synchronized with server cookies.
 5. **`app/admin/layout.tsx`:**
    - Added automatic Firebase Auth session restoration on admin panel mount and explicit sign-out on logout.
-6. **`app/api/admin/orders/route.ts`:**
-   - Added `PATCH` method supporting status updates, Shiprocket tracking numbers, logistics URLs, admin notes, and line-item changes.
-7. **`app/admin/inventory/page.tsx`:**
-   - Added Mandi procurement CSV export button and one-click product duplication.
-8. **`app/admin/orders/page.tsx`:**
+6. **`app/admin/inventory/page.tsx`:**
+   - Added Mandi procurement CSV export button, one-click product duplication, and hydration loading spinner.
+7. **`app/admin/orders/page.tsx`:**
    - Added batch delivery sticker printing (PDF), batch packing slips printing (PDF), and full CSV export.
+8. **`app/admin/audit-log/page.tsx`:**
+   - Added hydration loading state.
 
 ### Removals (-)
 - Removed un-awaited Firestore asynchronous dispatches that were causing race conditions during router navigation.
 - Removed legacy mock data precedence in repository hydration loops.
 - Removed deprecated `/order-confirmation` references in favor of canonical `/order-success`.
 - Removed reliance on unauthenticated client-side direct writes to Cloud Firestore.
+- Removed hardcoded environment variable checks (`=== 'firebase'`) that defaulted to mock data when environment variables were omitted.
 
 ---
 

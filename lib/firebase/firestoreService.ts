@@ -13,18 +13,31 @@ import {
 } from 'firebase/firestore'
 import { db, auth } from './config'
 import { signInWithEmailAndPassword } from 'firebase/auth'
-import { Product, Category, PageContent, Order, UserProfile, Coupon } from '@/types'
+import { Product, Category, PageContent, Order, UserProfile, Coupon, SiteSettings } from '@/types'
 import {
   initialProducts,
   initialCategories,
   initialHomeSections,
   initialCoupons,
+  initialSiteSettings,
 } from '@/lib/data/mockData'
+
+const ADMIN_EMAILS = [
+  'raskanfood@gmail.com',
+  'raskanwork@gmail.com',
+  'yashveerlabs@gmail.com',
+  'yashveersinghrajpoot@gmail.com',
+  'jasneetkakkar2016@gmail.com',
+  'ravigoodyear@gmail.com',
+  'owner@vaishnavamart.local',
+]
 
 let adminAuthPromise: Promise<any> | null = null
 
 export async function ensureAdminAuth() {
-  if (auth.currentUser) return auth.currentUser
+  if (auth.currentUser && auth.currentUser.email && ADMIN_EMAILS.includes(auth.currentUser.email.toLowerCase())) {
+    return auth.currentUser
+  }
   if (adminAuthPromise) return adminAuthPromise
 
   adminAuthPromise = (async () => {
@@ -207,16 +220,19 @@ export const FirestorePageService = {
 export const FirestoreOrderService = {
   async getAll(maxCount = 100): Promise<Order[]> {
     try {
+      await ensureAdminAuth()
       const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(maxCount))
       const snap = await getDocs(q)
       return snap.docs.map((d) => d.data() as Order)
     } catch (err) {
       try {
+        await ensureAdminAuth()
         const q2 = query(collection(db, 'orders'), limit(maxCount))
         const snap = await getDocs(q2)
-        return snap.docs.map((d) => d.data() as Order)
+        const orders = snap.docs.map((d) => d.data() as Order)
+        return orders.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
       } catch (innerErr) {
-        console.warn('Firestore orders fetch fallback:', innerErr)
+        console.warn('[FirestoreService] orders fetch fallback:', innerErr)
         return []
       }
     }
@@ -225,6 +241,7 @@ export const FirestoreOrderService = {
   async getById(id: string): Promise<Order | null> {
     if (!id) return null
     try {
+      await ensureAdminAuth()
       // 1. Direct document ID lookup
       const ref = doc(db, 'orders', id)
       const snap = await getDoc(ref)
@@ -241,7 +258,7 @@ export const FirestoreOrderService = {
 
       return null
     } catch (err) {
-      console.warn('Firestore order getById fallback:', err)
+      console.warn('[FirestoreService] order getById fallback:', err)
       return null
     }
   },
@@ -266,6 +283,7 @@ export const FirestoreOrderService = {
 export const FirestoreUserService = {
   async getAll(maxCount = 100): Promise<UserProfile[]> {
     try {
+      await ensureAdminAuth()
       const q = query(collection(db, 'users'), limit(maxCount))
       const snap = await getDocs(q)
       const users = snap.docs.map((d) => d.data() as UserProfile)
@@ -273,30 +291,32 @@ export const FirestoreUserService = {
         (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
       )
     } catch (err) {
-      console.warn('Firestore users fetch fallback:', err)
+      console.warn('[FirestoreService] users fetch fallback:', err)
       return []
     }
   },
 
   async getById(uid: string): Promise<UserProfile | null> {
     try {
+      await ensureAdminAuth()
       const ref = doc(db, 'users', uid)
       const snap = await getDoc(ref)
       return snap.exists() ? (snap.data() as UserProfile) : null
     } catch (err) {
-      console.warn('Firestore user getById fallback:', err)
+      console.warn('[FirestoreService] user getById fallback:', err)
       return null
     }
   },
 
   async save(user: UserProfile): Promise<UserProfile> {
     try {
+      await ensureAdminAuth()
       const cleanUser = JSON.parse(JSON.stringify(user))
       const ref = doc(db, 'users', cleanUser.uid)
       await setDoc(ref, cleanUser, { merge: true })
       return cleanUser
     } catch (err) {
-      console.warn('Firestore user save fallback:', err)
+      console.warn('[FirestoreService] user save fallback:', err)
       return user
     }
   },
@@ -308,11 +328,12 @@ export const FirestoreUserService = {
 export const FirestoreAuditLogService = {
   async getAll(maxCount = 50): Promise<any[]> {
     try {
+      await ensureAdminAuth()
       const q = query(collection(db, 'auditLogs'), orderBy('timestamp', 'desc'), limit(maxCount))
       const snap = await getDocs(q)
       return snap.docs.map((d) => d.data())
     } catch (err) {
-      console.warn('Firestore auditLogs fetch fallback:', err)
+      console.warn('[FirestoreService] auditLogs fetch fallback:', err)
       return []
     }
   },
@@ -324,6 +345,35 @@ export const FirestoreAuditLogService = {
       await setDoc(ref, log, { merge: true })
     } catch (err) {
       console.error('[FirestoreService] auditLog save error:', err)
+    }
+  },
+}
+
+/* =====================================================================
+   SITE SETTINGS (FSSAI, Address, Business Identity)
+===================================================================== */
+export const FirestoreSettingsService = {
+  async getSettings(): Promise<SiteSettings | null> {
+    try {
+      const ref = doc(db, 'settings', 'general')
+      const snap = await getDoc(ref)
+      if (snap.exists()) {
+        return snap.data() as SiteSettings
+      }
+      return null
+    } catch (err) {
+      console.warn('[FirestoreService] getSettings fallback:', err)
+      return null
+    }
+  },
+
+  async saveSettings(settings: Partial<SiteSettings>): Promise<void> {
+    try {
+      await ensureAdminAuth()
+      const ref = doc(db, 'settings', 'general')
+      await setDoc(ref, { ...settings, updatedAt: new Date().toISOString() }, { merge: true })
+    } catch (err) {
+      console.error('[FirestoreService] saveSettings error:', err)
     }
   },
 }

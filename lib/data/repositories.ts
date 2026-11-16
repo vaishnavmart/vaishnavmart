@@ -35,7 +35,11 @@ import {
   FirestoreUserService,
   FirestoreAuditLogService,
   FirestoreCouponService,
+  FirestoreSettingsService,
 } from '@/lib/firebase/firestoreService'
+
+// Data Persistence Mode: Enabled by default unless explicitly configured as 'mock'
+const isFirebaseEnabled = process.env.NEXT_PUBLIC_DATA_MODE !== 'mock'
 
 // In-Memory Global Mock Store (Server & Client fallback)
 let mockProductsStore: Product[] = [...initialProducts]
@@ -175,7 +179,7 @@ if (typeof window !== 'undefined') {
 export const ProductRepository = {
   async getAllProducts(options?: { status?: string; categoryId?: string; includeDemo?: boolean }): Promise<Product[]> {
     syncFromStorage()
-    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+    if (isFirebaseEnabled) {
       try {
         const liveProducts = await FirestoreProductService.getAll()
         if (liveProducts && liveProducts.length > 0) {
@@ -189,7 +193,7 @@ export const ProductRepository = {
           syncToStorage()
         }
       } catch (err) {
-        console.warn('Firestore getAllProducts notice:', err)
+        console.warn('[ProductRepository] Firestore getAllProducts notice:', err)
       }
     }
     let list = [...mockProductsStore]
@@ -209,21 +213,45 @@ export const ProductRepository = {
     syncFromStorage()
     if (id === 'rk-kha-08') return mockProductsStore.find((p) => p.id === 'rk-kha-06-50g' || p.id === 'rk-kha-08') || null
     if (id === 'rk-kha-09') return mockProductsStore.find((p) => p.id === 'rk-kha-07-50g' || p.id === 'rk-kha-09') || null
-    let found = mockProductsStore.find((p) => p.id === id) || null
-    if (!found && process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+
+    if (isFirebaseEnabled) {
       try {
-        found = await FirestoreProductService.getById(id)
-      } catch {
-        // fallback
+        const liveProduct = await FirestoreProductService.getById(id)
+        if (liveProduct) {
+          const idx = mockProductsStore.findIndex((p) => p.id === id)
+          if (idx >= 0) mockProductsStore[idx] = liveProduct
+          else mockProductsStore.unshift(liveProduct)
+          syncToStorage()
+          return liveProduct
+        }
+      } catch (err) {
+        console.warn('[ProductRepository] Firestore getProductById notice:', err)
       }
     }
-    return found
+
+    return mockProductsStore.find((p) => p.id === id) || null
   },
 
   async getProductBySlug(slug: string): Promise<Product | null> {
     syncFromStorage()
     const clean = slug.toLowerCase()
-    let found = (
+
+    if (isFirebaseEnabled) {
+      try {
+        const liveProduct = await FirestoreProductService.getBySlug(slug)
+        if (liveProduct) {
+          const idx = mockProductsStore.findIndex((p) => p.id === liveProduct.id)
+          if (idx >= 0) mockProductsStore[idx] = liveProduct
+          else mockProductsStore.unshift(liveProduct)
+          syncToStorage()
+          return liveProduct
+        }
+      } catch (err) {
+        console.warn('[ProductRepository] Firestore getProductBySlug notice:', err)
+      }
+    }
+
+    return (
       mockProductsStore.find((p) => p.slug.toLowerCase() === clean) ||
       mockProductsStore.find(
         (p) =>
@@ -233,14 +261,6 @@ export const ProductRepository = {
       mockProductsStore.find((p) => p.id.toLowerCase() === clean) ||
       null
     )
-    if (!found && process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
-      try {
-        found = await FirestoreProductService.getBySlug(slug)
-      } catch {
-        // fallback
-      }
-    }
-    return found
   },
 
   async saveProduct(product: Product): Promise<Product> {
@@ -410,7 +430,7 @@ export const ProductRepository = {
     mockProductsStore.unshift(clonedProduct)
     syncToStorage()
 
-    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+    if (isFirebaseEnabled) {
       try {
         await FirestoreProductService.save(clonedProduct)
       } catch (err) {
@@ -434,7 +454,7 @@ export const ProductRepository = {
 export const CategoryRepository = {
   async getAllCategories(): Promise<Category[]> {
     syncFromStorage()
-    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+    if (isFirebaseEnabled) {
       try {
         const liveCategories = await FirestoreCategoryService.getAll()
         if (liveCategories && liveCategories.length > 0) {
@@ -465,6 +485,17 @@ export const CategoryRepository = {
       'premixes': 'ready-to-eat-premix',
     }
     const resolvedSlug = aliasMap[slug] || slug
+
+    if (isFirebaseEnabled) {
+      try {
+        const cats = await this.getAllCategories()
+        const found = cats.find((c) => c.slug === resolvedSlug || c.slug === slug)
+        if (found) return found
+      } catch {
+        // Fallback
+      }
+    }
+
     return mockCategoriesStore.find((c) => c.slug === resolvedSlug || c.slug === slug) || null
   },
 
@@ -503,11 +534,12 @@ export const CategoryRepository = {
 export const PageRepository = {
   async getPage(slug = 'home'): Promise<PageContent> {
     syncFromStorage()
-    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+    if (isFirebaseEnabled) {
       try {
         const livePage = await FirestorePageService.getPage(slug)
         if (livePage && ((livePage.publishedSections && livePage.publishedSections.length > 0) || (livePage.draftSections && livePage.draftSections.length > 0))) {
           mockPagesStore[slug] = livePage
+          syncToStorage()
           return livePage
         }
       } catch (err) {
@@ -616,22 +648,20 @@ export const OrderRepository = {
       }
     }
 
-    // Fetch and merge any orders directly from Firestore
-    try {
-      const liveOrders = await FirestoreOrderService.getAll()
-      if (liveOrders && liveOrders.length > 0) {
-        liveOrders.forEach((lo) => {
-          const idx = mockOrdersStore.findIndex((o) => o.id === lo.id || o.orderNumber === lo.orderNumber)
-          if (idx >= 0) {
-            mockOrdersStore[idx] = { ...mockOrdersStore[idx], ...lo }
-          } else {
-            mockOrdersStore.unshift(lo)
-          }
-        })
-        syncToStorage()
+    // Fetch and merge all orders directly from Firestore
+    if (isFirebaseEnabled) {
+      try {
+        const liveOrders = await FirestoreOrderService.getAll()
+        if (liveOrders && liveOrders.length > 0) {
+          const orderMap = new Map<string, Order>()
+          initialOrders.forEach((o) => orderMap.set(o.id, { ...o }))
+          liveOrders.forEach((lo) => orderMap.set(lo.id, lo))
+          mockOrdersStore = Array.from(orderMap.values())
+          syncToStorage()
+        }
+      } catch (err) {
+        console.warn('[OrderRepository] Firestore liveOrders fetch notice:', err)
       }
-    } catch {
-      // Non-blocking fallback to local storage
     }
 
     let list = [...mockOrdersStore]
@@ -657,11 +687,31 @@ export const OrderRepository = {
   async getOrderById(id: string): Promise<Order | null> {
     if (!id) return null
     syncFromStorage()
-    // 1. Check local in-memory/localStorage store
+
+    // 1. Check Firestore first for authoritative live order state
+    if (isFirebaseEnabled) {
+      try {
+        const firestoreOrder = await FirestoreOrderService.getById(id)
+        if (firestoreOrder) {
+          const idx = mockOrdersStore.findIndex((o) => o.id === firestoreOrder.id || o.orderNumber === firestoreOrder.orderNumber)
+          if (idx >= 0) {
+            mockOrdersStore[idx] = firestoreOrder
+          } else {
+            mockOrdersStore.unshift(firestoreOrder)
+          }
+          syncToStorage()
+          return firestoreOrder
+        }
+      } catch (err) {
+        console.warn('[OrderRepository] Firestore getOrderById notice:', err)
+      }
+    }
+
+    // 2. Check local in-memory/localStorage store
     const local = mockOrdersStore.find((o) => o.id === id || o.orderNumber === id)
     if (local) return local
 
-    // 2. Check localStorage last order cache
+    // 3. Check localStorage last order cache
     if (typeof window !== 'undefined') {
       try {
         const lastOrderStr = localStorage.getItem('vm_last_order')
@@ -673,22 +723,8 @@ export const OrderRepository = {
           }
         }
       } catch {
-        // Continue to Firestore
+        // Continue to fallback
       }
-    }
-
-    // 3. Check Firestore
-    try {
-      const firestoreOrder = await FirestoreOrderService.getById(id)
-      if (firestoreOrder) {
-        if (!mockOrdersStore.some((o) => o.id === firestoreOrder.id)) {
-          mockOrdersStore.unshift(firestoreOrder)
-          syncToStorage()
-        }
-        return firestoreOrder
-      }
-    } catch (err) {
-      console.warn('Firestore getOrderById notice:', err)
     }
 
     return null
@@ -895,23 +931,19 @@ export const UserRepository = {
     syncFromStorage()
 
     // Fetch and merge real live customer profiles from Firestore
-    try {
-      const liveUsers = await FirestoreUserService.getAll()
-      if (liveUsers && liveUsers.length > 0) {
-        liveUsers.forEach((lu) => {
-          const idx = mockUsersStore.findIndex(
-            (u) => u.uid === lu.uid || (u.email && lu.email && u.email.toLowerCase() === lu.email.toLowerCase())
-          )
-          if (idx >= 0) {
-            mockUsersStore[idx] = { ...mockUsersStore[idx], ...lu }
-          } else {
-            mockUsersStore.unshift(lu)
-          }
-        })
-        syncToStorage()
+    if (isFirebaseEnabled) {
+      try {
+        const liveUsers = await FirestoreUserService.getAll()
+        if (liveUsers && liveUsers.length > 0) {
+          const userMap = new Map<string, UserProfile>()
+          initialUsers.forEach((u) => userMap.set(u.uid, { ...u }))
+          liveUsers.forEach((lu) => userMap.set(lu.uid, lu))
+          mockUsersStore = Array.from(userMap.values())
+          syncToStorage()
+        }
+      } catch (err) {
+        console.warn('[UserRepository] Firestore users fetch notice:', err)
       }
-    } catch (err) {
-      console.warn('Firestore users fetch notice:', err)
     }
 
     let list = [...mockUsersStore]
@@ -932,24 +964,23 @@ export const UserRepository = {
   async getUserById(uid: string): Promise<UserProfile | null> {
     if (!uid) return null
     syncFromStorage()
-    const local = mockUsersStore.find((u) => u.uid === uid)
-    if (local) return local
 
-    // Query Firestore if not present in local store
-    try {
-      const firestoreUser = await FirestoreUserService.getById(uid)
-      if (firestoreUser) {
-        if (!mockUsersStore.some((u) => u.uid === firestoreUser.uid)) {
-          mockUsersStore.push(firestoreUser)
+    if (isFirebaseEnabled) {
+      try {
+        const firestoreUser = await FirestoreUserService.getById(uid)
+        if (firestoreUser) {
+          const idx = mockUsersStore.findIndex((u) => u.uid === uid)
+          if (idx >= 0) mockUsersStore[idx] = firestoreUser
+          else mockUsersStore.push(firestoreUser)
           syncToStorage()
+          return firestoreUser
         }
-        return firestoreUser
+      } catch (err) {
+        console.warn('[UserRepository] Firestore getUserById notice:', err)
       }
-    } catch (err) {
-      console.warn('Firestore getUserById notice:', err)
     }
 
-    return null
+    return mockUsersStore.find((u) => u.uid === uid) || null
   },
 
   async saveUser(user: UserProfile): Promise<UserProfile> {
@@ -963,10 +994,12 @@ export const UserRepository = {
     syncToStorage()
 
     // Sync to Firestore
-    try {
-      await FirestoreUserService.save(user)
-    } catch (err) {
-      console.warn('Firebase user save notice:', err)
+    if (isFirebaseEnabled) {
+      try {
+        await FirestoreUserService.save(user)
+      } catch (err) {
+        console.warn('Firebase user save notice:', err)
+      }
     }
 
     return user
@@ -1025,6 +1058,17 @@ export const CartRepository = {
 export const SettingsRepository = {
   async getSettings(): Promise<SiteSettings> {
     syncFromStorage()
+    if (isFirebaseEnabled) {
+      try {
+        const liveSettings = await FirestoreSettingsService.getSettings()
+        if (liveSettings) {
+          mockSettingsStore = { ...mockSettingsStore, ...liveSettings }
+          syncToStorage()
+        }
+      } catch (err) {
+        console.warn('[SettingsRepository] getSettings fallback:', err)
+      }
+    }
     return { ...mockSettingsStore }
   },
 
@@ -1032,6 +1076,13 @@ export const SettingsRepository = {
     syncFromStorage()
     mockSettingsStore = { ...mockSettingsStore, ...settings }
     syncToStorage()
+    if (isFirebaseEnabled) {
+      try {
+        await FirestoreSettingsService.saveSettings(settings)
+      } catch (err) {
+        console.warn('[SettingsRepository] saveSettings fallback:', err)
+      }
+    }
     await AuditLogRepository.addLog('Settings Updated', 'Owner updated business settings', 'Owner')
     return mockSettingsStore
   },
@@ -1043,10 +1094,12 @@ export const SettingsRepository = {
 export const AuditLogRepository = {
   async getLogs(): Promise<AuditLog[]> {
     syncFromStorage()
-    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+    if (isFirebaseEnabled) {
       try {
         const liveLogs = await FirestoreAuditLogService.getAll(100)
         if (liveLogs && liveLogs.length > 0) {
+          mockAuditLogsStore = liveLogs as AuditLog[]
+          syncToStorage()
           return liveLogs as AuditLog[]
         }
       } catch (err) {
@@ -1077,7 +1130,7 @@ export const AuditLogRepository = {
 
 /* =====================================================================
    NOTIFICATION REPOSITORY
-===================================================================== */
+==================================================================== */
 export const NotificationRepository = {
   async getNotifications(): Promise<AdminNotification[]> {
     syncFromStorage()
@@ -1108,7 +1161,7 @@ export const NotificationRepository = {
 export const CouponRepository = {
   async getAllCoupons(): Promise<Coupon[]> {
     syncFromStorage()
-    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+    if (isFirebaseEnabled) {
       try {
         const live = await FirestoreCouponService.getAll()
         if (live && live.length > 0) {
@@ -1116,6 +1169,7 @@ export const CouponRepository = {
           initialCoupons.forEach((c) => couponMap.set(c.id, { ...c }))
           live.forEach((lc) => couponMap.set(lc.id, lc))
           mockCouponsStore = Array.from(couponMap.values())
+          syncToStorage()
         }
       } catch (err) {
         console.warn('Firestore getAllCoupons notice:', err)
@@ -1162,7 +1216,7 @@ export const CouponRepository = {
     }
     syncToStorage()
 
-    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+    if (isFirebaseEnabled) {
       FirestoreCouponService.save(clean).catch(() => {})
     }
 
@@ -1179,7 +1233,7 @@ export const CouponRepository = {
       await AuditLogRepository.addLog('Coupon Deleted', `Deleted promo coupon "${coupon.code}"`, 'Owner')
     }
 
-    if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+    if (isFirebaseEnabled) {
       FirestoreCouponService.remove(id).catch(() => {})
     }
   },
@@ -1248,7 +1302,7 @@ export const CouponRepository = {
       coupon.timesUsed = (coupon.timesUsed || 0) + 1
       coupon.updatedAt = new Date().toISOString()
       syncToStorage()
-      if (process.env.NEXT_PUBLIC_DATA_MODE === 'firebase') {
+      if (isFirebaseEnabled) {
         FirestoreCouponService.save(coupon).catch(() => {})
       }
     }
